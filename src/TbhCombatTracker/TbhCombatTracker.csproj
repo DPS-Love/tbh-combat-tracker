@@ -1,0 +1,108 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>TbhCombatTracker</AssemblyName>
+    <RootNamespace>TbhCombatTracker</RootNamespace>
+    <Version>0.1.0</Version>
+    <EnableDynamicLoading>false</EnableDynamicLoading>
+
+    <Authors>DPS Love Project</Authors>
+    <Product>TBH Combat Tracker</Product>
+    <Description>TBH: Task Bar Hero 的战斗统计面板 —— 按英雄拆分 DPS、伤害占比、暴击率，按关卡自动分段。只读统计，不修改游戏数值。</Description>
+    <Copyright>Copyright (c) 2026 DPS Love Project</Copyright>
+    <RepositoryUrl>https://github.com/DPS-Love/tbh-combat-tracker</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <!-- BepInEx 6 IL2CPP 本体。这些只在编译期引用，Private=false 表示不复制到输出目录。 -->
+  <ItemGroup>
+    <Reference Include="$(BepInExCoreDir)\BepInEx.Core.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExCoreDir)\BepInEx.Unity.IL2CPP.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExCoreDir)\Il2CppInterop.Runtime.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExCoreDir)\Il2CppInterop.Common.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExCoreDir)\0Harmony.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!--
+    Il2CppInterop 生成的代理程序集。注意和 MelonLoader 的差别：
+    BepInEx 保留原始程序集名和命名空间（Assembly-CSharp / TaskbarHero.*），
+    MelonLoader 则会前缀成 Il2CppAssembly-CSharp / Il2CppTaskbarHero.*。
+  -->
+  <ItemGroup>
+    <Reference Include="$(BepInExInteropDir)\Il2Cppmscorlib.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExInteropDir)\UnityEngine.CoreModule.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExInteropDir)\UnityEngine.IMGUIModule.dll">
+      <Private>false</Private>
+    </Reference>
+    <!-- 只为了那个隐形射线靶：让游戏自己的 EventSystem.RaycastAll 能命中我们 -->
+    <Reference Include="$(BepInExInteropDir)\UnityEngine.UI.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExInteropDir)\UnityEngine.UIModule.dll">
+      <Private>false</Private>
+    </Reference>
+    <!-- 读 UI_Stage.text_StageName 拿关卡名，用来做关卡分段和面板标题 -->
+    <Reference Include="$(BepInExInteropDir)\Unity.TextMeshPro.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExInteropDir)\UnityEngine.InputLegacyModule.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExInteropDir)\UnityEngine.TextRenderingModule.dll"
+              Condition="Exists('$(BepInExInteropDir)\UnityEngine.TextRenderingModule.dll')">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(BepInExInteropDir)\Il2CppSystem.Core.dll"
+              Condition="Exists('$(BepInExInteropDir)\Il2CppSystem.Core.dll')">
+      <Private>false</Private>
+    </Reference>
+    <!-- 游戏本体：Unit / Hero / Monster / DamageInfo / pj / ph 都在这里 -->
+    <Reference Include="$(BepInExInteropDir)\Assembly-CSharp.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 编译前检查依赖是否就绪，给出人话报错而不是一堆 CS0246 -->
+  <Target Name="CheckGameRefs" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(GameDir)\TaskBarHero.exe')"
+           Text="找不到游戏：$(GameDir)。请修改根目录的 Directory.Build.props 里的 GameDir。" />
+    <Error Condition="!Exists('$(BepInExCoreDir)\BepInEx.Unity.IL2CPP.dll')"
+           Text="找不到 $(BepInExCoreDir)\BepInEx.Unity.IL2CPP.dll。请先安装 BepInEx 6 IL2CPP：pwsh tools/install-bepinex.ps1" />
+    <Error Condition="!Exists('$(BepInExInteropDir)\Assembly-CSharp.dll')"
+           Text="找不到 $(BepInExInteropDir)\Assembly-CSharp.dll。请先启动一次游戏，让 BepInEx 用 Cpp2IL 生成 interop 程序集（首次要 1-3 分钟）。" />
+  </Target>
+
+  <!--
+    构建完自动部署到 BepInEx\plugins。
+    游戏运行时 DLL 被锁，复制必然失败——必须如实报出来，
+    否则会出现"构建成功 + 已部署"但游戏里跑的还是旧代码的假象。
+    Retries=0 是故意的：重试 10 次只是白等 10 秒，结果一样失败。
+  -->
+  <Target Name="DeployToGame" AfterTargets="Build" Condition="Exists('$(GameDir)\TaskBarHero.exe')">
+    <MakeDir Directories="$(PluginsDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PluginsDir)"
+          ContinueOnError="true" Retries="0">
+      <Output TaskParameter="CopiedFiles" ItemName="_DeployedFiles" />
+    </Copy>
+    <Message Condition="'@(_DeployedFiles)' != ''" Importance="high"
+             Text="已部署 -> $(PluginsDir)\$(TargetFileName)" />
+    <Warning Condition="'@(_DeployedFiles)' == ''"
+             Text="部署失败：$(PluginsDir)\$(TargetFileName) 被占用（通常是游戏正在运行）。关掉游戏后重新构建，否则游戏里跑的还是旧版本。" />
+  </Target>
+
+</Project>

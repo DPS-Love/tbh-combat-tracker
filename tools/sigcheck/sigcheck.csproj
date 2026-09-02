@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    读 BepInEx 生成的 interop 程序集，打印我们 hook 的那几个方法的真实签名。
+    编译通过 ≠ Harmony 能绑上：形参名、方法是否在派生类上声明、值类型被生成成 class 还是 struct，
+    这些编译器都不检查，但 Harmony 全都依赖。游戏更新后先跑这个，再改 Patches.cs。
+    用法见 README「游戏更新之后」一节。
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>sigcheck</AssemblyName>
+    <RootNamespace>TbhSigCheck</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DefaultInteropDir>$(BepInExInteropDir)</DefaultInteropDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 直接借用 BepInEx 自带的 Cecil，免得再拉 NuGet 包 -->
+    <Reference Include="Mono.Cecil">
+      <HintPath>$(BepInExCoreDir)\Mono.Cecil.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>InteropDir</_Parameter1>
+      <_Parameter2>$(DefaultInteropDir)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <Target Name="CheckCecil" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(BepInExCoreDir)\Mono.Cecil.dll')"
+           Text="找不到 $(BepInExCoreDir)\Mono.Cecil.dll。请先安装 BepInEx：pwsh tools/install-bepinex.ps1" />
+  </Target>
+
+</Project>

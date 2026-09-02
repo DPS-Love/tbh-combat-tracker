@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    游戏路径。如果你的 Steam 库不在 D 盘，改这里，或者在命令行覆盖：
+        dotnet build -p:GameDir="E:\Steam\steamapps\common\TaskbarHero"
+  -->
+  <PropertyGroup>
+    <GameDir Condition="'$(GameDir)' == ''">D:\Steam\steamapps\common\TaskbarHero</GameDir>
+
+    <BepInExDir>$(GameDir)\BepInEx</BepInExDir>
+    <!-- 加载器本体和 Harmony -->
+    <BepInExCoreDir>$(BepInExDir)\core</BepInExCoreDir>
+    <!-- Il2CppInterop 生成的游戏代理程序集（首次启动游戏时生成） -->
+    <BepInExInteropDir>$(BepInExDir)\interop</BepInExInteropDir>
+    <PluginsDir>$(BepInExDir)\plugins</PluginsDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <DebugType>portable</DebugType>
+    <!-- Il2Cpp 代理程序集里有大量 obsolete / 无 XML 文档的成员，静音掉噪音 -->
+    <NoWarn>$(NoWarn);CS0618;CS1591;CS0649;CS0169</NoWarn>
+  </PropertyGroup>
+
+</Project>

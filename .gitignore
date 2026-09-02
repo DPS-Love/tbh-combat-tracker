@@ -1,0 +1,14 @@
+bin/
+obj/
+build/
+
+# Il2CppDumper 是二进制工具，从 release 页下载即可，不入库
+tools/Il2CppDumper/*.exe
+
+*.user
+.vs/
+.idea/
+
+# sigcheck 会把 Mono.Cecil 复制到输出目录
+tools/sigcheck/bin/
+tools/sigcheck/obj/
