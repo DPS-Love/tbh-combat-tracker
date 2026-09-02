@@ -52,6 +52,7 @@ namespace TbhCombatTracker
         public ConfigEntry<string> ExportKey;
         public ConfigEntry<float> IdleResetSeconds;
         public ConfigEntry<bool> TrackIncoming;
+        public ConfigEntry<bool> TrackHealing;
         public ConfigEntry<bool> SegmentByStage;
         public ConfigEntry<bool> ProbeMode;
         public ConfigEntry<bool> DiagnosticMode;
@@ -72,6 +73,9 @@ namespace TbhCombatTracker
                 "多少秒没有任何伤害就自动开启新一场战斗统计，0 = 从不自动重置"),
             TrackIncoming = c.Bind("Tracking", "TrackIncoming", true,
                 "同时统计英雄承受的伤害"),
+            TrackHealing = c.Bind("Tracking", "TrackHealing", true,
+                "统计英雄获得的治疗。牧师主动治疗按施法者归因；自然回血没有来源，"
+                + "会归到\"自动回复\"一档"),
             SegmentByStage = c.Bind("Tracking", "SegmentByStage", true,
                 "按关卡自动分段（读游戏的 StageManager 状态机）。"
                 + "关掉的话退回按 IdleResetSeconds 的空闲时间分段"),

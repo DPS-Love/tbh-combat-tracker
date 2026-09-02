@@ -330,3 +330,17 @@ LICENSE
 [docs/anticheat.md](docs/anticheat.md) 第 5 节。
 
 即便如此仍建议玩家先备份存档：`%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero`
+
+---
+
+## 许可与声明
+
+本项目采用 [MIT 协议](LICENSE)。
+
+本项目是 TBH: Task Bar Hero 的**非官方粉丝作品**，与游戏开发商 TesseractStudio 无关，
+也未获其背书。游戏本身及其美术、数据等资产的权利归各自权利人所有；本项目只读取游戏
+运行时的可观测状态供玩家自用，**不包含也不分发任何游戏资产**。
+
+仓库内的 [docs/symbols.md](docs/symbols.md) 是为了让本 Mod 在游戏更新后能重新对齐而
+记录的符号对照，[docs/anticheat.md](docs/anticheat.md) 是为了向使用者如实说明风险而做的
+分析；两者都不包含可直接运行的游戏代码或资产。

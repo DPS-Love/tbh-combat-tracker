@@ -106,10 +106,24 @@ namespace TbhCombatTracker
         private static int RowCount() => DamageTracker.Current.Bucket(_view).Count;
 
         private static string ViewLabel(TrackerView v)
-            => v == TrackerView.Incoming ? "承伤" : "输出";
+        {
+            switch (v)
+            {
+                case TrackerView.Incoming: return "承伤";
+                case TrackerView.Healing: return "治疗";
+                default: return "输出";
+            }
+        }
 
         private static string EmptyHint(TrackerView v)
-            => v == TrackerView.Incoming ? "尚未承受伤害…" : "等待伤害数据…";
+        {
+            switch (v)
+            {
+                case TrackerView.Incoming: return "尚未承受伤害…";
+                case TrackerView.Healing: return "尚未产生治疗…";
+                default: return "等待伤害数据…";
+            }
+        }
 
         private static void DrawWindow(int id)
         {
@@ -152,7 +166,10 @@ namespace TbhCombatTracker
             if (GUI.Button(new Rect(headRect.xMax - btnW * 2f - 4f, headRect.y, btnW, 17f),
                            ViewLabel(_view)))
             {
-                _view = _view == TrackerView.Outgoing ? TrackerView.Incoming : TrackerView.Outgoing;
+                // 输出 → 承伤 → 治疗 → 输出
+                _view = _view == TrackerView.Outgoing ? TrackerView.Incoming
+                      : _view == TrackerView.Incoming ? TrackerView.Healing
+                      : TrackerView.Outgoing;
             }
             if (GUI.Button(new Rect(headRect.xMax - btnW, headRect.y, btnW, 17f), "重置"))
                 DamageTracker.ResetCurrent();
@@ -209,9 +226,11 @@ namespace TbhCombatTracker
             Shadowed(new Rect(at.x, y, CardW - 6f, PctTextH), $"{share * 100d:0.0}%", _pct);
             y += PctTextH;
 
-            // ACT 风格的补充信息：暴击率 + 单次最大
-            var crit = s.Hits > 0 ? $"暴 {s.CritRate * 100d:0}%" : "暴 —";
-            Shadowed(new Rect(at.x, y, CardW - 6f, DetailH), $"{crit}   最大 {Short(s.MaxHit)}", _detail);
+            // ACT 风格的补充信息。治疗没有暴击这一说，改显示次数。
+            var lead = _view == TrackerView.Healing
+                ? $"{s.Hits} 次"
+                : (s.Hits > 0 ? $"暴 {s.CritRate * 100d:0}%" : "暴 —");
+            Shadowed(new Rect(at.x, y, CardW - 6f, DetailH), $"{lead}   最大 {Short(s.MaxHit)}", _detail);
         }
 
         // ------------------------------------------------------------------

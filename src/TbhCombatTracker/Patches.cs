@@ -18,6 +18,7 @@ using GUnitHealth = global::pj;      // UnitHealth
 using GMonsterHealth = global::ph;   // MonsterHealth
 using GHeroHealth = global::pf;      // HeroHealth
 using GWindowNative = global::on;    // Win32 窗口样式控制（点击穿透开关）
+using GPriestHeal = TaskbarHero.Combat.PriestHeal;
 
 namespace TbhCombatTracker
 {
@@ -45,6 +46,13 @@ namespace TbhCombatTracker
         // 交叉引用确认过：on 里三个 (bool) 方法只有 glu 有调用点，另两个是死代码；
         // 且只有 glu 的机器码里含 GWL_EXSTYLE(-20) 和 WS_EX_LAYERED。
         private const string ClickThroughMethod = "glu";
+
+        // PriestHeal.mti() —— 牧师主动治疗的执行入口，机器码全局唯一。
+        // 治疗和伤害共用 UnitHealth.ChangeHp，但治疗那条路径的 Unit source 恒为 null
+        // （实测 pf.gsi(1.5, null)），在血量入口无法归因。所以改从技能侧夹上下文：
+        // mti() 前后记下 / 清除"当前治疗者"，中间落到 gsi 的正数增量就归给它。
+        // 和伤害那套 Monster.grd → pj.gsi 的配对是同一个套路。
+        private const string PriestHealMethod = "mti";
 
         public static void ApplyAll(Harmony harmony)
         {
@@ -88,6 +96,17 @@ namespace TbhCombatTracker
                         postfix: nameof(WindowStyle_Post)))
                 {
                     Mod.Log.Warning("穿透修正 hook 挂载失败：面板只能看，按钮点不了也拖不动。");
+                }
+            }
+
+            // 治疗归因：夹住牧师的主动治疗技能，好让血量入口知道是谁治的。
+            if (Mod.Config.TrackHealing.Value)
+            {
+                if (!TryPatch(harmony, typeof(GPriestHeal), PriestHealMethod,
+                        prefix: nameof(PriestHeal_Pre),
+                        finalizer: nameof(PriestHeal_Fin)))
+                {
+                    Mod.Log.Warning("治疗归因 hook 挂载失败：治疗仍会统计，但全部归到\"未知来源\"。");
                 }
             }
 
@@ -183,22 +202,67 @@ namespace TbhCombatTracker
         }
 
         /// <summary>
-        /// HeroHealth.ChangeHp(float delta, Unit source) —— 英雄承伤。
-        /// 正数是回血，直接忽略：实测这条路径的 source 恒为 null
-        /// （pf.gsi(1.5, null)），归因不到治疗者，统计没有意义。
+        /// HeroHealth.ChangeHp(float delta, Unit source) —— 英雄承伤（负）与回血（正）。
+        /// 两者共用同一个入口，只是符号相反。
         /// </summary>
         private static void HeroHealth_HpDelta_Post(GHeroHealth __instance, float a, GUnit b)
         {
             try
             {
-                if (__instance == null || a >= 0f) return;
+                if (__instance == null || a == 0f) return;
 
-                DamageTracker.RecordIncoming(__instance.GetInstanceID(), Naming.ForHealth(__instance), -a);
+                if (a < 0f)
+                {
+                    // 承伤按挨打的那个英雄归因
+                    DamageTracker.RecordIncoming(__instance.GetInstanceID(), Naming.ForHealth(__instance), -a);
+                    return;
+                }
+
+                if (!Mod.Config.TrackHealing.Value) return;
+
+                // 治疗：这个入口的 source 参数恒为 null，所以只能靠上游技能 hook
+                // 留下的"当前治疗者"上下文。没有上下文的就是自然回血。
+                if (_healerValid)
+                    DamageTracker.RecordHealing(_healerId, _healer, a);
+                else
+                    DamageTracker.RecordHealing(0, SourceIdentity.Plain("自动回复"), a);
             }
             catch (Exception e)
             {
                 LogOnceInternal("HeroHealth_HpDelta_Post", e);
             }
+        }
+
+        // 当前正在结算的治疗者。和伤害的分类上下文一样，靠 Prefix/Finalizer 夹住技能执行。
+        [ThreadStatic] private static SourceIdentity _healer;
+        [ThreadStatic] private static int _healerId;
+        [ThreadStatic] private static bool _healerValid;
+
+        /// <summary>PriestHeal.mti() —— 牧师主动治疗执行前，记下施法者。</summary>
+        private static void PriestHeal_Pre(GPriestHeal __instance)
+        {
+            try
+            {
+                var hero = __instance?.bhfz;
+                if (hero == null) return;
+
+                _healer = Naming.For(hero);
+                _healerId = hero.GetInstanceID();
+                _healerValid = true;
+            }
+            catch (Exception e)
+            {
+                LogOnceInternal("PriestHeal_Pre", e);
+            }
+        }
+
+        /// <summary>用 Finalizer 而不是 Postfix：原方法抛异常时也要把上下文清掉，免得泄漏到下一次治疗。</summary>
+        private static Exception PriestHeal_Fin(Exception __exception)
+        {
+            _healerValid = false;
+            _healer = default;
+            _healerId = 0;
+            return __exception;
         }
 
         /// <summary>Monster.grd(DamageInfo info, bool _) = TakeDamage —— 在结算前后夹住分类上下文。</summary>

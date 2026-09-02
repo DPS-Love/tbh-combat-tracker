@@ -9,6 +9,9 @@ using GMonster = TaskbarHero.Monster;
 using GUnitHealth = global::pj;
 using GMonsterHealth = global::ph;
 using GHeroHealth = global::pf;
+using GPriestHeal = TaskbarHero.Combat.PriestHeal;
+using GHeroActiveSkill = TaskbarHero.Combat.HeroActiveSkill;
+using GHealField = global::bfj;
 
 namespace TbhCombatTracker
 {
@@ -59,6 +62,10 @@ namespace TbhCombatTracker
             "Monster.gpz", "Monster.gqa", "Monster.gqt", "Monster.gqu", "Monster.gsq", "Monster.gsr",
             "Monster.gss", "Monster.gst", "Monster.gsu", "Monster.grd", "Monster.grt", "Monster.gsv",
             "Monster.gsw", "Monster.gsx", "Monster.gsy",
+            // 治疗侧：牧师主动治疗、技能基类、治疗场（bfj 带 HealingAsync 状态机）
+            "PriestHeal.mti", "PriestHeal.mtj",
+            "HeroActiveSkill.mtu", "HeroActiveSkill.mun",
+            "bfj.jie", "bfj.klt", "bfj.nhd", "bfj.nhg",
         };
 
         private static readonly Dictionary<string, int> Counts = new Dictionary<string, int>();
@@ -78,6 +85,9 @@ namespace TbhCombatTracker
                 ("ph (MonsterHealth)", typeof(GMonsterHealth)),
                 ("pf (HeroHealth)", typeof(GHeroHealth)),
                 ("Monster", typeof(GMonster)),
+                ("PriestHeal", typeof(GPriestHeal)),
+                ("HeroActiveSkill", typeof(GHeroActiveSkill)),
+                ("bfj (治疗场)", typeof(GHealField)),
             };
 
             var prefix = new HarmonyMethod(

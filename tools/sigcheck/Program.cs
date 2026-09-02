@@ -21,6 +21,7 @@ namespace TbhSigCheck
             ("on", new[] { "glu" }),                     // 点击穿透开关（Win32 兜底方案用）
             ("TaskbarHero.StageManager", new[] { "get_stageState", "get_b_StageStart" }), // 关卡分段信号
             ("TaskbarHero.UI_Stage", new[] { "get_text_StageName" }),  // 关卡名 ← 分段依据 + 面板标题
+            ("TaskbarHero.Combat.PriestHeal", new[] { "mti", "get_bhfz" }), // 治疗归因 ← 施法者上下文
             ("TaskbarHero.Unit", new[] { "gpz", "gqa" }),
         };
 

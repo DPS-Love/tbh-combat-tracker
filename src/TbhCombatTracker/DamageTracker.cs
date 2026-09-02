@@ -61,12 +61,9 @@ namespace TbhCombatTracker
         Outgoing,
         /// <summary>英雄承受的伤害（按承伤的英雄归因）。</summary>
         Incoming,
+        /// <summary>英雄获得的治疗（按治疗来源归因）。</summary>
+        Healing,
     }
-
-    // 曾经做过第三个"治疗"视图，实测撤掉了：游戏的回血走的是同一个
-    // UnitHealth.ChangeHp(delta>0)，但 source 恒为 null（pf.gsi(1.5, null)），
-    // 拿不到治疗者，全部只能归到"自动回复"一档，没有统计价值。
-    // 要重做的话得从技能侧另找 hook，别再指望这个入口。
 
     public class Encounter
     {
@@ -78,9 +75,17 @@ namespace TbhCombatTracker
 
         public readonly Dictionary<int, SourceStats> Outgoing = new Dictionary<int, SourceStats>();
         public readonly Dictionary<int, SourceStats> Incoming = new Dictionary<int, SourceStats>();
+        public readonly Dictionary<int, SourceStats> Healing = new Dictionary<int, SourceStats>();
 
         public Dictionary<int, SourceStats> Bucket(TrackerView v)
-            => v == TrackerView.Incoming ? Incoming : Outgoing;
+        {
+            switch (v)
+            {
+                case TrackerView.Incoming: return Incoming;
+                case TrackerView.Healing: return Healing;
+                default: return Outgoing;
+            }
+        }
 
         public double TotalOf(TrackerView v)
         {
@@ -137,6 +142,9 @@ namespace TbhCombatTracker
         internal static void RecordIncoming(int victimId, SourceIdentity victim, float amount)
             => Record(TrackerView.Incoming, victimId, victim, amount);
 
+        internal static void RecordHealing(int sourceId, SourceIdentity source, float amount)
+            => Record(TrackerView.Healing, sourceId, source, amount);
+
         private static void Record(TrackerView view, int id, SourceIdentity who, float amount)
         {
             // 0 和 NaN 一律丢弃——它们会把 DPS 和暴击率算歪。
@@ -169,7 +177,8 @@ namespace TbhCombatTracker
                 if (s.FirstHitTime < 0f) s.FirstHitTime = now;
                 s.LastHitTime = now;
 
-                if (ctx.Valid)
+                // 分类上下文（暴击/元素/伤害类型）只对伤害有意义，治疗不该沾
+                if (ctx.Valid && view != TrackerView.Healing)
                 {
                     if (ctx.IsCritical) s.Crits++;
 
@@ -207,7 +216,8 @@ namespace TbhCombatTracker
             lock (Gate)
             {
                 // 上一段是空的就直接改标签，别平白多出一堆空战斗
-                if (_current.Outgoing.Count == 0 && _current.Incoming.Count == 0)
+                if (_current.Outgoing.Count == 0 && _current.Incoming.Count == 0 &&
+                    _current.Healing.Count == 0)
                 {
                     _current.Label = label;
                     _current.StartTime = Time.realtimeSinceStartup;
@@ -229,7 +239,8 @@ namespace TbhCombatTracker
             var idle = Mod.Config?.IdleResetSeconds?.Value ?? 8f;
             if (idle <= 0f) return;
 
-            if (_current.Outgoing.Count == 0 && _current.Incoming.Count == 0)
+            if (_current.Outgoing.Count == 0 && _current.Incoming.Count == 0 &&
+                _current.Healing.Count == 0)
             {
                 _current.StartTime = now;
                 return;
@@ -317,6 +328,7 @@ namespace TbhCombatTracker
                 {
                     Dump("outgoing", enc.Outgoing.Values);
                     Dump("incoming", enc.Incoming.Values);
+                    Dump("healing", enc.Healing.Values);
                 }
 
                 File.WriteAllText(file, sb.ToString(), new UTF8Encoding(true));
