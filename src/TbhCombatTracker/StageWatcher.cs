@@ -84,6 +84,12 @@ namespace TbhCombatTracker
             var name = ReadStageName();
             if (string.IsNullOrEmpty(name) || name == _lastStageName) return null;
 
+            // 本地化还没填充时读到的是模板（实测见过 "Stage {0}-{1}"），
+            // 那不是真的换关卡，忽略掉免得误切段。
+            if (name.IndexOf("{0}", StringComparison.Ordinal) >= 0 ||
+                name.IndexOf("{1}", StringComparison.Ordinal) >= 0)
+                return null;
+
             var prev = _lastStageName;
             _lastStageName = name;
             Mod.Log.Msg($"[stage] 关卡名 '{prev}' -> '{name}'");

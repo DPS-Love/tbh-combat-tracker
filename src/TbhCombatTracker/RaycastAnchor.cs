@@ -22,6 +22,7 @@ namespace TbhCombatTracker
 
         private static GameObject _root;
         private static RectTransform _area;
+        private static RectTransform _area2;   // 明细窗口
         private static bool _tried;
 
         /// <summary>创建成功且仍然存活时为 true；此时 Win32 那条路会自动让位。</summary>
@@ -56,11 +57,16 @@ namespace TbhCombatTracker
                 // Image 默认 alphaHitTestMinimumThreshold = 0，全透明也照样算命中
                 img.raycastTarget = true;
 
-                _area = areaGo.GetComponent<RectTransform>();
-                _area.anchorMin = new Vector2(0f, 1f);   // 锚到左上，和 GUI 坐标系对齐
-                _area.anchorMax = new Vector2(0f, 1f);
-                _area.pivot = new Vector2(0f, 1f);
-                _area.sizeDelta = Vector2.zero;
+                _area = SetupArea(areaGo);
+
+                // 第二块给明细窗口。用两块独立矩形而不是并集包围盒——
+                // 并集会把两窗之间的空白也变成不可穿透，挡住桌面操作。
+                var area2Go = new GameObject("Area2");
+                area2Go.transform.SetParent(_root.transform, false);
+                var img2 = area2Go.AddComponent<Image>();
+                img2.color = new Color(0f, 0f, 0f, 0f);
+                img2.raycastTarget = true;
+                _area2 = SetupArea(area2Go);
 
                 Mod.Log.Msg("已创建 uGUI 射线靶：光标移到面板上时，游戏会自动解除点击穿透。");
                 return true;
@@ -73,6 +79,16 @@ namespace TbhCombatTracker
             }
         }
 
+        private static RectTransform SetupArea(GameObject go)
+        {
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0f, 1f);   // 锚到左上，和 GUI 坐标系对齐
+            rt.anchorMax = new Vector2(0f, 1f);
+            rt.pivot = new Vector2(0f, 1f);
+            rt.sizeDelta = Vector2.zero;
+            return rt;
+        }
+
         /// <summary>把射线靶同步到面板当前的屏幕矩形。</summary>
         public static void Sync(Rect guiRect, float scale)
         {
@@ -80,10 +96,11 @@ namespace TbhCombatTracker
 
             try
             {
-                // GUI 坐标（左上原点、y 向下）* 缩放 = 屏幕像素；
-                // 锚点和轴心都在左上，所以 anchoredPosition 直接用 (x, -y)。
-                _area.anchoredPosition = new Vector2(guiRect.x * scale, -guiRect.y * scale);
-                _area.sizeDelta = new Vector2(guiRect.width * scale, guiRect.height * scale);
+                Place(_area, guiRect, scale);
+
+                // 明细窗口开着时才占位
+                if (DetailWindow.IsOpen) Place(_area2, DetailWindow.CurrentRect, scale);
+                else if (_area2 != null) _area2.sizeDelta = Vector2.zero;
             }
             catch (Exception e)
             {
@@ -92,11 +109,25 @@ namespace TbhCombatTracker
             }
         }
 
+        private static void Place(RectTransform rt, Rect guiRect, float scale)
+        {
+            if (rt == null) return;
+            // GUI 坐标（左上原点、y 向下）* 缩放 = 屏幕像素；
+            // 锚点和轴心都在左上，所以 anchoredPosition 直接用 (x, -y)。
+            rt.anchoredPosition = new Vector2(guiRect.x * scale, -guiRect.y * scale);
+            rt.sizeDelta = new Vector2(guiRect.width * scale, guiRect.height * scale);
+        }
+
         /// <summary>面板隐藏时把靶子缩到 0，免得看不见的区域还在抢鼠标。</summary>
         public static void Hide()
         {
             if (!Active) return;
-            try { _area.sizeDelta = Vector2.zero; } catch { /* 无所谓 */ }
+            try
+            {
+                _area.sizeDelta = Vector2.zero;
+                if (_area2 != null) _area2.sizeDelta = Vector2.zero;
+            }
+            catch { /* 无所谓 */ }
         }
 
         public static void Destroy()
@@ -108,6 +139,7 @@ namespace TbhCombatTracker
             catch { /* 退出阶段不吵闹 */ }
             _root = null;
             _area = null;
+            _area2 = null;
         }
     }
 }

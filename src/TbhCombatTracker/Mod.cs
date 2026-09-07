@@ -53,9 +53,12 @@ namespace TbhCombatTracker
         public ConfigEntry<float> IdleResetSeconds;
         public ConfigEntry<bool> TrackIncoming;
         public ConfigEntry<bool> TrackHealing;
+        public ConfigEntry<bool> TrackSkills;
         public ConfigEntry<bool> SegmentByStage;
         public ConfigEntry<bool> ProbeMode;
         public ConfigEntry<bool> DiagnosticMode;
+        public ConfigEntry<bool> HealingDebug;
+        public ConfigEntry<bool> LocalizationDebug;
         public ConfigEntry<float> UiScale;
         public ConfigEntry<float> SkewDegrees;
         public ConfigEntry<bool> FixClickThrough;
@@ -76,11 +79,20 @@ namespace TbhCombatTracker
             TrackHealing = c.Bind("Tracking", "TrackHealing", true,
                 "统计英雄获得的治疗。牧师主动治疗按施法者归因；自然回血没有来源，"
                 + "会归到\"自动回复\"一档"),
+            TrackSkills = c.Bind("Tracking", "TrackSkills", true,
+                "按技能拆分伤害（普通攻击 / 陨石 / 圣剑…）。游戏的技能类名没被混淆，"
+                + "所以拆出来是真名而不是编号"),
             SegmentByStage = c.Bind("Tracking", "SegmentByStage", true,
                 "按关卡自动分段（读游戏的 StageManager 状态机）。"
                 + "关掉的话退回按 IdleResetSeconds 的空闲时间分段"),
             ProbeMode = c.Bind("Tracking", "ProbeMode", false,
                 "调试模式：把首次遇到的每个攻击者的各种名字字段打到日志，用来确认怎么给英雄取名"),
+            HealingDebug = c.Bind("Tracking", "HealingDebug", false,
+                "把每一次生命恢复连同判定出的来源打到日志，用来核对恢复分类是否准确。"
+                + "和 DiagnosticMode 不同，这个开关不会自动关闭——它只记日志，不打补丁，不会搞崩游戏"),
+            LocalizationDebug = c.Bind("Tracking", "LocalizationDebug", false,
+                "把本地化查询的尝试结果打到日志。伤害类型/元素属性的译文键名只能靠运行时试，"
+                + "开一轮就能看出游戏用的是哪种命名"),
             DiagnosticMode = c.Bind("Tracking", "DiagnosticMode", false,
                 "诊断模式：给血量控制器和 Monster 的所有方法挂钩子，记录前几次调用和实参，"
                 + "用来定位伤害到底走哪条路。日志量大，查完记得改回 false"),

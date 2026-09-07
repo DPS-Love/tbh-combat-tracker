@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>TbhCombatTracker</AssemblyName>
     <RootNamespace>TbhCombatTracker</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <EnableDynamicLoading>false</EnableDynamicLoading>
 
     <Authors>DPS Love Project</Authors>
@@ -58,6 +58,10 @@
     </Reference>
     <!-- 读 UI_Stage.text_StageName 拿关卡名，用来做关卡分段和面板标题 -->
     <Reference Include="$(BepInExInteropDir)\Unity.TextMeshPro.dll">
+      <Private>false</Private>
+    </Reference>
+    <!-- 读游戏当前语言（LocalizationSettings.GetSelectedLocale）-->
+    <Reference Include="$(BepInExInteropDir)\Unity.Localization.dll">
       <Private>false</Private>
     </Reference>
     <Reference Include="$(BepInExInteropDir)\UnityEngine.InputLegacyModule.dll">

@@ -15,14 +15,16 @@ namespace TbhSigCheck
         /// </summary>
         private static readonly (string Type, string[] Methods)[] Targets =
         {
-            ("pj", new[] { "gsi" }),                     // UnitHealth.ChangeHp        ← 主 hook（怪物承伤）
+            ("pj", new[] { "gsi", "gxq" }),              // ChangeHp ← 主 hook；gxq ← 恢复总入口
             ("pf", new[] { "gsi", "get_bdeg" }),         // HeroHealth.ChangeHp + 它持有的 Hero
             ("TaskbarHero.Monster", new[] { "grd" }),    // Monster.TakeDamage         ← 分类 hook
             ("on", new[] { "glu" }),                     // 点击穿透开关（Win32 兜底方案用）
             ("TaskbarHero.StageManager", new[] { "get_stageState", "get_b_StageStart" }), // 关卡分段信号
             ("TaskbarHero.UI_Stage", new[] { "get_text_StageName" }),  // 关卡名 ← 分段依据 + 面板标题
             ("TaskbarHero.Combat.PriestHeal", new[] { "mti", "get_bhfz" }), // 治疗归因 ← 施法者上下文
-            ("TaskbarHero.Unit", new[] { "gpz", "gqa" }),
+            ("TaskbarHero.Combat.PriestSanctuary", new[] { "mti" }),   // 圣域，和治愈区分
+            ("TaskbarHero.Combat.ActiveSkill", new[] { "AttackDamage", "get_bhnf" }), // 技能级归因
+            ("TaskbarHero.Unit", new[] { "gpz", "gqa", "grd", "grt" }), // grd/grt ← 恢复来源括号
         };
 
         private static readonly string[] TypeDumps =

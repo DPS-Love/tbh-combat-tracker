@@ -61,6 +61,7 @@ namespace TbhCombatTracker
                 _rect.height = HeaderH + NameH + BlockH + PctBarH + PctTextH + DetailH + Pad * 2f;
 
                 _rect = GUI.Window(WindowId, _rect, (GUI.WindowFunction)DrawWindow, "TBH Combat Tracker");
+                DetailWindow.Draw();
                 _failures = 0;
             }
             catch (Exception e)
@@ -79,6 +80,9 @@ namespace TbhCombatTracker
         /// </summary>
         /// <summary>面板当前的 GUI 矩形（未乘缩放），给射线靶同步用。</summary>
         public static Rect CurrentRect => _rect;
+
+        /// <summary>当前视图，明细窗口要跟着一起切。</summary>
+        public static TrackerView CurrentView => _view;
 
         public static float CurrentScale
         {
@@ -186,11 +190,43 @@ namespace TbhCombatTracker
 
             // ---- 卡片区 ----
             var max = rows[0].Total;
+            var cardH = NameH + BlockH + PctBarH + PctTextH + DetailH + 2f;
             for (int i = 0; i < rows.Count; i++)
-                DrawCard(rows[i], new Rect(Pad + i * (CardW + CardGap), top, CardW, 0f), total, max);
+            {
+                var at = new Rect(Pad + i * (CardW + CardGap), top, CardW, cardH);
+                DrawCard(rows[i], at, total, max);
+                HandleCardClick(at, rows[i].InstanceId);
+            }
 
             // 整个窗口都能拖：按钮和其它控件会先消费掉自己的点击，不冲突
             GUI.DragWindow();
+        }
+
+        // 点击卡片展开明细。要和拖窗口共存：MouseDown 不消费（留给 GUI.DragWindow 起拖），
+        // 只在 MouseUp 时判断"按下到抬起几乎没移动"才算点击。
+        private static Vector2 _pressPos;
+        private static int _pressedId;
+        private static bool _pressing;
+
+        private static void HandleCardClick(Rect r, int id)
+        {
+            var e = Event.current;
+            if (e == null || e.button != 0) return;
+
+            if (e.type == EventType.MouseDown && r.Contains(e.mousePosition))
+            {
+                _pressPos = e.mousePosition;
+                _pressedId = id;
+                _pressing = true;
+            }
+            else if (e.type == EventType.MouseUp && _pressing && _pressedId == id)
+            {
+                _pressing = false;
+                // 位移超过几像素就当成拖窗口，不是点击。
+                // 这里不调 e.Use()——消费掉会让 DragWindow 收不到抬起事件，窗口可能卡在拖拽态。
+                if (r.Contains(e.mousePosition) && (e.mousePosition - _pressPos).sqrMagnitude <= 25f)
+                    DetailWindow.Open(id, _view);
+            }
         }
 
         private static void DrawCard(SourceStats s, Rect at, double total, double max)
@@ -227,10 +263,20 @@ namespace TbhCombatTracker
             y += PctTextH;
 
             // ACT 风格的补充信息。治疗没有暴击这一说，改显示次数。
-            var lead = _view == TrackerView.Healing
-                ? $"{s.Hits} 次"
-                : (s.Hits > 0 ? $"暴 {s.CritRate * 100d:0}%" : "暴 —");
-            Shadowed(new Rect(at.x, y, CardW - 6f, DetailH), $"{lead}   最大 {Short(s.MaxHit)}", _detail);
+            if (_view == TrackerView.Healing)
+            {
+                // 治疗没有暴击这一说，换成"主要来源 + 次数"更有信息量
+                var top = s.TopHealKind;
+                var lead = top ?? $"{s.Hits} 次";
+                Shadowed(new Rect(at.x, y, CardW - 6f, DetailH),
+                         $"{lead}   {s.Hits} 次", _detail);
+            }
+            else
+            {
+                var crit = s.Hits > 0 ? $"暴 {s.CritRate * 100d:0}%" : "暴 —";
+                Shadowed(new Rect(at.x, y, CardW - 6f, DetailH),
+                         $"{crit}   最大 {Short(s.MaxHit)}", _detail);
+            }
         }
 
         // ------------------------------------------------------------------

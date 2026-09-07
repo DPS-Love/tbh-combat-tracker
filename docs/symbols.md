@@ -284,3 +284,68 @@ EventSystem.current.RaycastAll(pointerEventData, list)   ← 通用射线，遍�
 
 `ClickThrough.cs` 是兜底：射线靶创建失败时才改窗口样式，并且参数极性靠读回
 `GWL_EXSTYLE` 自动标定，不硬编码。
+
+## 10. 本地化文本
+
+游戏用 Unity Localization 包，封装在全局类 `nt` 上（一组 string 扩展方法）：
+
+```csharp
+nt.gfv(key)          // ← 走本地化表，返回玩家当前语言
+nt.gft(key)          // ← 返回英文源文本，只能当兜底
+nt.gfu(key, table)   nt.gfw(key, table)   // 指定表名
+nt.gfx(key, args)                          // 带格式化参数
+```
+
+> `gfv` / `gft` 哪个对哪张表，静态分析看不出来。是靠一条日志定的：
+> 中文界面下 `gft("HeroName_401")` 返回 `"Priest"`，`gfv` 才返回 `"牧师"`。
+
+两张表：`StringTable`（通用）和 `ItemTable`（道具）。语言 16 种。
+当前语言从 `LocalizationSettings.SelectedLocale`（**静态**属性；同名的
+`GetSelectedLocale()` 是实例方法）→ `Locale.Identifier` → `LocaleIdentifier.Code`。
+`LocaleIdentifier` 是结构体，不能对 `.Identifier` 用 `?.`。
+
+### 键从哪来
+
+| 东西 | 键 | 出处 |
+|---|---|---|
+| 英雄名 | `HeroName_401` | `HeroInfoData.HeroNameKey`，字段名没被混淆 |
+| 技能名 | — | `ActiveSkill.skillCache`(`vt`) → `.bfmw` → `SkillInfoData.SkillNameKey` |
+| 元素属性 | `Fire` / `Cold` / `Physical` … | **裸枚举名**就是键 |
+| 伤害类型 | 没有 | 见下 |
+
+> ⚠️ **界面文本的键大多不在 `global-metadata.dat` 里。** 它们由预制体上的
+> `LocalizeStringEvent` 组件持有，存在 Addressables 资产中。翻 `dump.cs` 或扫描
+> metadata 字面量都找不到，只能解包 bundle：`tools/dump-localization.py`。
+
+### 伤害类型：游戏没有独立词条，从整句里反推
+
+`EDamageType` 的 Melee / Projectile / AOE / Summon 在**任何**语言的字符串表里都没有
+单独的词条（裸枚举名、`EDamageType` 前缀、下划线变体都试过）——界面上不显示这批枚举。
+
+但属性面板上有整句：
+
+```
+StatName_IncreaseMeleeDamage        zh 增加近战伤害      en Increase Melee Damage
+StatName_IncreaseProjectileDamage   zh 增加投射物伤害    en Increase Projectile Damage
+StatName_IncreaseAreaOfEffectDamage zh 增加范围伤害      en Increase Area Of Effect Damage
+StatName_IncreaseSummonDamage       zh 增加召唤物伤害    en Increase Summon Damage
+```
+
+把这四句**共有的前缀和后缀**都剥掉，剩下的正好是类型词。这个做法与语言无关——
+不需要知道"增加"在哪门语言里怎么写、摆在词的前面还是后面。
+实现在 `Localize.LiftDistinctParts`，已把全部 16 种语言离线跑过，每种都能抠出
+四个互不相同的词：
+
+```
+zh-Hans  近战 / 投射物 / 范围 / 召唤物          zh-Hant  近戰 / 投射物 / 範圍 / 召喚物
+en-US    Melee / Projectile / Area Of Effect / Summon
+ja-JP    近接 / 投射物 / 範囲 / 召喚            ko-KR    근접 공격 / 투사체 공격 / 범위 공격 / 소환물
+ru-RU    ближнего боя / снарядов / по области / призванных
+de-DE    Nahkampf / Geschoss / Flächen / Beschwörungs
+```
+
+> 用 `StatName_*` 而不是 `Stat_Increase*Damage_ADDITIVE`：后者在 de / fr / th / tr / vi
+> 里带缩写和占位符残留（`Nahkampfscha.`、`%{0} Artan Yakın Dövüş`），`StatName_*` 干净。
+
+**DOT 和 Trap 在任何语言里都没有出处**，和 `None` 一起继续用 `BuiltinText` 的内置双语表。
+内置文本按 `LocalizationSettings.SelectedLocale` 选中/英，不硬编码中文——Mod 是公开发布的。

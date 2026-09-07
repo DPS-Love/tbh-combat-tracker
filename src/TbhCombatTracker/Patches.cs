@@ -19,6 +19,9 @@ using GMonsterHealth = global::ph;   // MonsterHealth
 using GHeroHealth = global::pf;      // HeroHealth
 using GWindowNative = global::on;    // Win32 窗口样式控制（点击穿透开关）
 using GPriestHeal = TaskbarHero.Combat.PriestHeal;
+using GPriestSanctuary = TaskbarHero.Combat.PriestSanctuary;
+using GActiveSkill = TaskbarHero.Combat.ActiveSkill;
+using GExplosiveBolt = TaskbarHero.Combat.Projectile.HunterExplosiveBolt;
 
 namespace TbhCombatTracker
 {
@@ -40,7 +43,11 @@ namespace TbhCombatTracker
         // NullReferenceException 刷屏。而 Monster.grd 的机器码全局唯一，安全。
         // （een 在两个类上代码相同这件事本身也说明它只是个转发器，grd 才是各自的真实现。）
         // 哪些方法全局唯一：python tools/safe-hooks.py
-        private const string TakeDamageMethod = "grd";  // Monster.TakeDamage(DamageInfo, bool)
+        // grd = TakeDamage。Monster / Hero / Unit 各有各的覆写且机器码全局唯一：
+        //   Monster.grd —— 怪物承伤 = 我方输出的分类来源
+        //   Hero.grd    —— 英雄承伤 = 承伤面板的分类来源
+        //   Unit.grd    —— 基类，另外兼作"战斗回复"的判定括号
+        private const string TakeDamageMethod = "grd";
 
         // on.glu(bool) —— 每帧由 WindowManager.Update() 调用，开关窗口的 WS_EX_TRANSPARENT。
         // 交叉引用确认过：on 里三个 (bool) 方法只有 glu 有调用点，另两个是死代码；
@@ -53,6 +60,22 @@ namespace TbhCombatTracker
         // mti() 前后记下 / 清除"当前治疗者"，中间落到 gsi 的正数增量就归给它。
         // 和伤害那套 Monster.grd → pj.gsi 的配对是同一个套路。
         private const string PriestHealMethod = "mti";
+
+        // 恢复来源的上游括号。交叉引用确认这三处都会走到 pj.gxq：
+        //   Unit.grd(DamageInfo, bool)  2 处 —— 伤害结算内的生命偷取 / 每次攻击回复
+        //   Unit.grt(Unit killer)       1 处 —— 击杀时的处决回复
+        //   PriestHeal.mti()                —— 牧师主动治疗
+        // 三个方法的机器码都全局唯一（python tools/safe-hooks.py 确认）。
+        private const string UnitTakeDamageMethod = "grd";
+        private const string UnitOnKilledMethod = "grt";
+        private const string HealFunnelMethod = "gxq";   // pj.gxq —— 所有恢复的总入口
+
+        // ActiveSkill.AttackDamage() —— 每个技能生成自己 DamageInfo 的工厂，方法名未混淆。
+        // 它是**命中时才求值的惰性工厂**（基类只有 1 个直接调用点，其余全是虚分发/委托），
+        // 所以弹道和 AOE 的延迟伤害也会走到，是做技能级归因最准的位置。
+        // 53 个技能类里只有 HunterExplosiveBolt 覆写了它，所以挂基类 + 它就够全覆盖。
+        private const string SkillDamageFactoryMethod = "AttackDamage";
+        private const string SkillExecuteMethod = "mti";
 
         public static void ApplyAll(Harmony harmony)
         {
@@ -70,11 +93,20 @@ namespace TbhCombatTracker
 
             // 辅助 hook：拿暴击 / 伤害类型 / 伤害属性。失败只是丢失分类，数值仍然准确。
             if (!TryPatch(harmony, typeof(GMonster), TakeDamageMethod,
-                    prefix: nameof(Monster_TakeDamage_Pre),
-                    finalizer: nameof(Monster_TakeDamage_Fin)))
+                    prefix: nameof(TakeDamage_Pre),
+                    finalizer: nameof(TakeDamage_Fin)))
             {
                 Mod.Log.Warning(
                     "伤害分类 hook 挂载失败：总伤害/DPS 仍然准确，但暴击率和元素/类型拆分会全部为空。");
+            }
+
+            // 英雄承伤的分类。之前只挂了 Monster.grd，所以承伤面板点开没有类型/元素两栏。
+            // Hero.grd 是独立覆写、机器码全局唯一，可以安全另挂一份。
+            if (!TryPatch(harmony, typeof(GHero), TakeDamageMethod,
+                    prefix: nameof(TakeDamage_Pre),
+                    finalizer: nameof(TakeDamage_Fin)))
+            {
+                Mod.Log.Warning("英雄承伤分类 hook 挂载失败：承伤面板将没有类型/元素拆分。");
             }
 
             // 可选 hook：英雄承伤。pf(HeroHealth) 覆写了 gsi，所以必须单独挂它，
@@ -99,15 +131,38 @@ namespace TbhCombatTracker
                 }
             }
 
-            // 治疗归因：夹住牧师的主动治疗技能，好让血量入口知道是谁治的。
+            // 治疗归因：在三个上游入口夹上下文，好让血量入口知道这次恢复是哪来的。
+            // 任一失败只是该来源被并进"自然回复"，不影响总量。
             if (Mod.Config.TrackHealing.Value)
             {
-                if (!TryPatch(harmony, typeof(GPriestHeal), PriestHealMethod,
-                        prefix: nameof(PriestHeal_Pre),
-                        finalizer: nameof(PriestHeal_Fin)))
+                TryPatch(harmony, typeof(GPriestHeal), PriestHealMethod,
+                    prefix: nameof(PriestHeal_Pre), finalizer: nameof(PriestHeal_Fin));
+
+                TryPatch(harmony, typeof(GUnit), UnitTakeDamageMethod,
+                    prefix: nameof(UnitTakeDamage_Pre), finalizer: nameof(UnitTakeDamage_Fin));
+
+                TryPatch(harmony, typeof(GUnit), UnitOnKilledMethod,
+                    prefix: nameof(UnitOnKilled_Pre), finalizer: nameof(UnitOnKilled_Fin));
+
+                TryPatch(harmony, typeof(GUnitHealth), HealFunnelMethod,
+                    prefix: nameof(HealFunnel_Pre), finalizer: nameof(HealFunnel_Fin));
+
+                // 圣域和治愈都是 (true,true) 标志，分不开；各挂各的执行入口才能区分。
+                TryPatch(harmony, typeof(GPriestSanctuary), SkillExecuteMethod,
+                    prefix: nameof(Sanctuary_Pre), finalizer: nameof(Sanctuary_Fin));
+            }
+
+            // 技能级归因：伤害饼图的数据来源。失败只是技能维度缺失，总量不受影响。
+            if (Mod.Config.TrackSkills.Value)
+            {
+                if (!TryPatch(harmony, typeof(GActiveSkill), SkillDamageFactoryMethod,
+                        postfix: nameof(SkillDamage_Post)))
                 {
-                    Mod.Log.Warning("治疗归因 hook 挂载失败：治疗仍会统计，但全部归到\"未知来源\"。");
+                    Mod.Log.Warning("技能归因 hook 挂载失败：伤害仍会统计，但拆不出技能维度。");
                 }
+
+                TryPatch(harmony, typeof(GExplosiveBolt), SkillDamageFactoryMethod,
+                    postfix: nameof(SkillDamage_Post));
             }
 
             if (Mod.Config.DiagnosticMode.Value)
@@ -189,11 +244,14 @@ namespace TbhCombatTracker
                 // 不能直接丢弃，否则总伤害对不上——归到"未知来源"。
                 if (b == null)
                 {
-                    DamageTracker.RecordOutgoing(0, SourceIdentity.Plain("未知来源"), amount);
+                    DamageTracker.RecordOutgoing(0, SourceIdentity.Plain(BuiltinText.UnknownSource),
+                                                 amount, SkillTracker.For(0));
                     return;
                 }
 
-                DamageTracker.RecordOutgoing(b.GetInstanceID(), Naming.For(b), amount);
+                var attackerId = b.GetInstanceID();
+                DamageTracker.RecordOutgoing(attackerId, Naming.For(b), amount,
+                                             SkillTracker.For(attackerId));
             }
             catch (Exception e)
             {
@@ -214,18 +272,19 @@ namespace TbhCombatTracker
                 if (a < 0f)
                 {
                     // 承伤按挨打的那个英雄归因
-                    DamageTracker.RecordIncoming(__instance.GetInstanceID(), Naming.ForHealth(__instance), -a);
+                    // 承伤也带上技能维度——明细窗口里能看出"被什么技能打的"。
+                    // 同样按英雄 id 归档，和治疗/输出保持同一套键。
+                    DamageTracker.RecordIncoming(HeroIdOf(__instance),
+                                                 Naming.ForHealth(__instance), -a,
+                                                 SkillTracker.For(0));
                     return;
                 }
 
                 if (!Mod.Config.TrackHealing.Value) return;
 
-                // 治疗：这个入口的 source 参数恒为 null，所以只能靠上游技能 hook
-                // 留下的"当前治疗者"上下文。没有上下文的就是自然回血。
-                if (_healerValid)
-                    DamageTracker.RecordHealing(_healerId, _healer, a);
-                else
-                    DamageTracker.RecordHealing(0, SourceIdentity.Plain("自动回复"), a);
+                // 这里拿到的是**实际生效**的恢复量（gxq 传下来的值可能因满血被削），
+                // 分类则来自上游括号。
+                RecordHeal(__instance, a);
             }
             catch (Exception e)
             {
@@ -233,22 +292,97 @@ namespace TbhCombatTracker
             }
         }
 
-        // 当前正在结算的治疗者。和伤害的分类上下文一样，靠 Prefix/Finalizer 夹住技能执行。
-        [ThreadStatic] private static SourceIdentity _healer;
-        [ThreadStatic] private static int _healerId;
-        [ThreadStatic] private static bool _healerValid;
+        /// <summary>
+        /// 把一次实际生效的恢复计入统计。
+        /// 技能治疗归施法者（和伤害归攻击者一致），自愈类归被恢复的单位自己。
+        /// </summary>
+        private static void RecordHeal(GHeroHealth health, float amount)
+        {
+            var kind = Healing.Resolve();
 
-        /// <summary>PriestHeal.mti() —— 牧师主动治疗执行前，记下施法者。</summary>
-        private static void PriestHeal_Pre(GPriestHeal __instance)
+            // 技能治疗归施法者（和伤害归攻击者一致）。括号内能直接拿到；
+            // 延迟落地的那部分靠记住的"最近一次施法者"补上。
+            // Sanctuary 也必须算进来——漏了它，圣域的治疗会被记到被治疗者头上。
+            var isSkill = kind == HealKind.PriestHeal
+                       || kind == HealKind.Sanctuary
+                       || kind == HealKind.Skill;
+
+            if (isSkill && Healing.TryGetCaster(out var caster))
+            {
+                DamageTracker.RecordHealing(caster.InstanceId, caster, amount, kind);
+            }
+            else if (isSkill && Healing.TryGetLastCaster(out var last))
+            {
+                DamageTracker.RecordHealing(last.InstanceId, last, amount, kind);
+            }
+            else
+            {
+                // 自愈类（自然回复 / 战斗回复 / 处决回复）归被恢复的单位自己。
+                //
+                // 【必须用英雄的实例 id，不能用血量组件的】
+                // 技能治疗那两条分支用的是英雄 id（caster.InstanceId），
+                // 这里若用 health.GetInstanceID() 就成了两个不同的键，
+                // 同一个牧师会在面板上裂成两张卡片——自愈一张、技能治疗一张。
+                var who = Naming.ForHealth(health);
+                DamageTracker.RecordHealing(HeroIdOf(health), who, amount, kind);
+            }
+
+            if (Mod.Config.HealingDebug.Value)
+            {
+                // 排查用：绕过 gxq 直接改血的恢复路径会被归成"自然回复"，
+                // 记一条好知道有没有漏。
+                if (!Healing.InFunnel)
+                    LogOnceInternal("回血未经过 gxq 漏斗",
+                        new Exception($"amount={amount:0.##} kind={Healing.KindName((int)kind)}"));
+
+                // 括号和标志位不一致时记一条——分类依据出问题时能第一时间发现
+                var bracket = Healing.CurrentKind;
+                if (Healing.InFunnel && bracket != kind &&
+                    bracket != HealKind.Regen)
+                    Mod.Log.Msg($"[heal] 判定分歧: 括号={Healing.KindName((int)bracket)} " +
+                                $"标志=({Healing.FlagB},{Healing.FlagC})->{Healing.KindName((int)kind)}");
+            }
+        }
+
+        /// <summary>
+        /// 取血量组件背后那个英雄的实例 id。统计的键必须始终是**英雄**，
+        /// 不能有时用英雄、有时用血量组件，否则同一个人会被拆成两条记录。
+        /// </summary>
+        private static int HeroIdOf(GHeroHealth health)
         {
             try
             {
-                var hero = __instance?.bhfz;
-                if (hero == null) return;
+                var hero = health?.bdeg;
+                if (hero != null) return hero.GetInstanceID();
+            }
+            catch { /* 退回组件 id 总比崩了强 */ }
 
-                _healer = Naming.For(hero);
-                _healerId = hero.GetInstanceID();
-                _healerValid = true;
+            return health != null ? health.GetInstanceID() : 0;
+        }
+
+        // ---- 三个上游括号。用 __state 保存/恢复，天然支持嵌套 ----
+
+        /// <summary>PriestHeal.mti() —— 牧师「治愈」。</summary>
+        private static void PriestHeal_Pre(GPriestHeal __instance,
+                                           out (HealKind, SourceIdentity, bool) __state)
+        {
+            __state = default;
+            try
+            {
+                var hero = __instance?.bhfz;
+                if (hero != null)
+                {
+                    // 治疗延迟落地，括号跨不过去，所以额外记住施法者
+                    Healing.RememberCaster(Naming.For(hero));
+                    __state = Healing.Enter(HealKind.PriestHeal, Naming.For(hero));
+                }
+                else
+                {
+                    __state = Healing.Enter(HealKind.PriestHeal);
+                }
+
+                if (Mod.Config.HealingDebug.Value)
+                    Mod.Log.Msg($"[heal] PriestHeal.mti() 施法者={(hero != null ? Naming.For(hero).Name : "?")}");
             }
             catch (Exception e)
             {
@@ -256,21 +390,107 @@ namespace TbhCombatTracker
             }
         }
 
-        /// <summary>用 Finalizer 而不是 Postfix：原方法抛异常时也要把上下文清掉，免得泄漏到下一次治疗。</summary>
-        private static Exception PriestHeal_Fin(Exception __exception)
+        /// <summary>用 Finalizer 而不是 Postfix：原方法抛异常时也要把括号恢复掉。</summary>
+        private static Exception PriestHeal_Fin((HealKind, SourceIdentity, bool) __state,
+                                                Exception __exception)
         {
-            _healerValid = false;
-            _healer = default;
-            _healerId = 0;
+            Healing.Restore(__state);
+            return __exception;
+        }
+
+        /// <summary>
+        /// ActiveSkill.AttackDamage() 的 Postfix —— 技能刚生成 DamageInfo，
+        /// 记下是哪个技能，等伤害落地时归因。
+        /// </summary>
+        private static void SkillDamage_Post(GActiveSkill __instance)
+        {
+            try { SkillTracker.Remember(__instance); }
+            catch (Exception e) { LogOnceInternal("SkillDamage_Post", e); }
+        }
+
+        /// <summary>PriestSanctuary.mti() —— 「圣域」，和「治愈」区分开。</summary>
+        private static void Sanctuary_Pre(GPriestSanctuary __instance,
+                                          out (HealKind, SourceIdentity, bool) __state)
+        {
+            __state = default;
+            try
+            {
+                var hero = __instance?.bhnf?.TryCast<GHero>();
+                if (hero != null)
+                {
+                    Healing.RememberCaster(Naming.For(hero));
+                    __state = Healing.Enter(HealKind.Sanctuary, Naming.For(hero));
+                }
+                else
+                {
+                    __state = Healing.Enter(HealKind.Sanctuary);
+                }
+
+                if (Mod.Config.HealingDebug.Value)
+                    Mod.Log.Msg($"[heal] PriestSanctuary.mti() 施法者={(hero != null ? Naming.For(hero).Name : "?")}");
+            }
+            catch (Exception e)
+            {
+                LogOnceInternal("Sanctuary_Pre", e);
+            }
+        }
+
+        private static Exception Sanctuary_Fin((HealKind, SourceIdentity, bool) __state,
+                                               Exception __exception)
+        {
+            Healing.Restore(__state);
+            return __exception;
+        }
+
+        /// <summary>Unit.grd —— 伤害结算内触发的恢复 = 生命偷取 / 每次攻击回复。</summary>
+        private static void UnitTakeDamage_Pre(out (HealKind, SourceIdentity, bool) __state)
+            => __state = Healing.Enter(HealKind.InCombat);
+
+        private static Exception UnitTakeDamage_Fin((HealKind, SourceIdentity, bool) __state,
+                                                    Exception __exception)
+        {
+            Healing.Restore(__state);
+            return __exception;
+        }
+
+        /// <summary>Unit.grt(Unit killer) —— 击杀时触发的恢复 = 处决回复。</summary>
+        private static void UnitOnKilled_Pre(out (HealKind, SourceIdentity, bool) __state)
+            => __state = Healing.Enter(HealKind.OnKill);
+
+        private static Exception UnitOnKilled_Fin((HealKind, SourceIdentity, bool) __state,
+                                                  Exception __exception)
+        {
+            Healing.Restore(__state);
+            return __exception;
+        }
+
+        /// <summary>pj.gxq —— 所有恢复的总入口，只用来标记"确实走了漏斗"。</summary>
+        private static void HealFunnel_Pre(GUnitHealth __instance, float a, bool b, bool c,
+                                           out (bool, bool, bool) __state)
+        {
+            __state = Healing.EnterFunnel(b, c);
+
+            if (Mod.Config.HealingDebug.Value)
+            {
+                var target = Naming.ForHealth(__instance).Name;
+                Mod.Log.Msg($"[heal] gxq({a:0.##}, {b}, {c}) 目标={target} " +
+                            $"来源={Healing.KindName((int)Healing.Resolve())}");
+            }
+        }
+
+        private static Exception HealFunnel_Fin((bool, bool, bool) __state, Exception __exception)
+        {
+            Healing.RestoreFunnel(__state);
             return __exception;
         }
 
         /// <summary>Monster.grd(DamageInfo info, bool _) = TakeDamage —— 在结算前后夹住分类上下文。</summary>
-        private static void Monster_TakeDamage_Pre(GDamageInfo a, bool b)
+        private static void TakeDamage_Pre(GDamageInfo a, bool b, out DamageContext __state)
         {
+            __state = default;
             try
             {
-                DamageTracker.PushContext(
+                __state = DamageTracker.PushContext(
                     crit: a.IsCritical,
                     damageType: (int)a.DamageType,
                     damageAttribute: (int)a.DamageAttribute,
@@ -278,7 +498,7 @@ namespace TbhCombatTracker
             }
             catch (Exception e)
             {
-                LogOnceInternal("Monster_TakeDamage_Pre", e);
+                LogOnceInternal("TakeDamage_Pre", e);
             }
         }
 
@@ -297,9 +517,9 @@ namespace TbhCombatTracker
         }
 
         /// <summary>Finalizer 即使原方法抛异常也会执行，保证上下文不会泄漏到下一次伤害。</summary>
-        private static Exception Monster_TakeDamage_Fin(Exception __exception)
+        private static Exception TakeDamage_Fin(DamageContext __state, Exception __exception)
         {
-            DamageTracker.PopContext();
+            DamageTracker.RestoreContext(__state);
             return __exception; // 原样抛回去，不吞游戏的异常
         }
 
@@ -322,8 +542,10 @@ namespace TbhCombatTracker
     {
         public string Name;
         public int ClassType;
+        /// <summary>来源单位的实例 id，0 表示没有具体单位（环境伤害、自然回复等）。</summary>
+        public int InstanceId;
 
-        public static SourceIdentity Plain(string name) => new SourceIdentity { Name = name, ClassType = 0 };
+        public static SourceIdentity Plain(string name) => new SourceIdentity { Name = name };
     }
 
     /// <summary>给伤害来源取一个人能看懂的名字和职业，并缓存，避免每次命中都做反射。</summary>
@@ -341,6 +563,7 @@ namespace TbhCombatTracker
             }
 
             var identity = Resolve(unit);
+            identity.InstanceId = id;
 
             lock (Cache) Cache[id] = identity;
             return identity;
@@ -368,6 +591,9 @@ namespace TbhCombatTracker
             return identity;
         }
 
+        /// <summary>本地化到的职业名，索引是 EEquipClassType；没查到的位置为 null。</summary>
+        internal static readonly string[] LocalizedJobName = new string[JobTable.Count];
+
         /// <summary>同名单位出现第几个，用来给重复名字加 #2 / #3 后缀。</summary>
         private static readonly System.Collections.Generic.Dictionary<string, int> NameSeq =
             new System.Collections.Generic.Dictionary<string, int>();
@@ -380,8 +606,11 @@ namespace TbhCombatTracker
             var baseName = Clean(SafeGameObjectName(unit)) ?? (hero != null ? "Hero" : "Unit");
             var classType = hero != null ? ReadClassType(hero, baseName) : 0;
 
-            // 拿到职业就用职业名（骑士/游侠/…），拿不到就退回 GameObject 名
-            var label = JobTable.Label(classType) ?? baseName;
+            // 优先用游戏本地化的职业名，其次是内置中文表，最后才是 GameObject 名
+            var label = (classType > 0 && classType < LocalizedJobName.Length
+                            ? LocalizedJobName[classType] : null)
+                        ?? JobTable.Label(classType)
+                        ?? baseName;
 
             if (Mod.Config.ProbeMode.Value)
                 Probe(unit, baseName);
@@ -411,9 +640,19 @@ namespace TbhCombatTracker
 
                 var classType = (int)info.ClassType;
 
+                // 用游戏自己的本地化名，而不是我们硬编码的中文——跟随玩家的语言设置。
+                // HeroInfoData.HeroNameKey 是权威的本地化键（实测形如 "HeroName_401"），
+                // 查不到才退回硬编码表。
+                var localized = Localize.TryGet(info.HeroNameKey);
+                if (!string.IsNullOrWhiteSpace(localized))
+                    LocalizedJobName[classType] = localized;
+
                 // 每个英雄只会走到这里一次（外层有缓存），打一条方便核对映射关系
                 Mod.Log.Msg($"识别英雄 {baseName}: HeroKey={info.HeroKey} " +
-                            $"ClassType={info.ClassType}({classType}) -> {JobTable.Label(classType) ?? "?"}");
+                            $"ClassType={info.ClassType}({classType}) " +
+                            $"NameKey='{info.HeroNameKey}' -> " +
+                            $"{localized ?? JobTable.Label(classType) ?? "?"}" +
+                            (localized == null ? "（本地化查不到，用内置名）" : ""));
 
                 return classType;
             }
