@@ -91,8 +91,8 @@ namespace TbhCombatTracker
                 "把每一次生命恢复连同判定出的来源打到日志，用来核对恢复分类是否准确。"
                 + "和 DiagnosticMode 不同，这个开关不会自动关闭——它只记日志，不打补丁，不会搞崩游戏"),
             LocalizationDebug = c.Bind("Tracking", "LocalizationDebug", false,
-                "把本地化查询的尝试结果打到日志。伤害类型/元素属性的译文键名只能靠运行时试，"
-                + "开一轮就能看出游戏用的是哪种命名"),
+                "把每次本地化查询的结果打到日志（每个键只打一次）。"
+                + "游戏更新后如果面板上出现原文或空白，开一轮就能看出是哪个键失效了"),
             DiagnosticMode = c.Bind("Tracking", "DiagnosticMode", false,
                 "诊断模式：给血量控制器和 Monster 的所有方法挂钩子，记录前几次调用和实参，"
                 + "用来定位伤害到底走哪条路。日志量大，查完记得改回 false"),
