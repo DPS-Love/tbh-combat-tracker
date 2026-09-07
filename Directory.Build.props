@@ -7,7 +7,11 @@
   <PropertyGroup>
     <GameDir Condition="'$(GameDir)' == ''">D:\Steam\steamapps\common\TaskbarHero</GameDir>
 
-    <BepInExDir>$(GameDir)\BepInEx</BepInExDir>
+    <!--
+      CI 上没有游戏，只有一份从私有仓库检出的引用程序集，直接指过去：
+          dotnet build ... -p:RefsOnly=true -p:BepInExDir=<路径>\BepInEx
+    -->
+    <BepInExDir Condition="'$(BepInExDir)' == ''">$(GameDir)\BepInEx</BepInExDir>
     <!-- 加载器本体和 Harmony -->
     <BepInExCoreDir>$(BepInExDir)\core</BepInExCoreDir>
     <!-- Il2CppInterop 生成的游戏代理程序集（首次启动游戏时生成） -->

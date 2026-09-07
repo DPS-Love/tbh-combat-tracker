@@ -1,0 +1,114 @@
+# 打 v* 标签就发布一个 Release。
+#
+# 为什么不是"检出就能编译"那么简单：
+# 这个 Mod 编译时要引用 BepInEx 用 Il2CppInterop 从游戏本体生成的代理程序集
+# （BepInEx/interop/Assembly-CSharp.dll 等）。那些程序集是游戏代码派生出来的，
+# 既不能进公开仓库，也没法在 runner 上生成——生成它们需要游戏的
+# GameAssembly.dll + global-metadata.dat。
+#
+# 所以这个工作流有两种模式，按仓库里有没有配 GAME_REFS_REPO 自动选：
+#
+#   A. 配了私有引用仓库  -> CI 自己编译、打包、上传，Release 直接发布。
+#   B. 没配（默认）      -> CI 建一个**草稿** Release 并生成发布说明，
+#                          产物由维护者在本机跑 tools/package-release.ps1 -Upload 附上去。
+#
+# 模式 A 的私有仓库结构（内容不公开，只给 CI 用）：
+#   BepInEx/core/*.dll
+#   BepInEx/interop/*.dll
+# 然后在本仓库配两个 secret：
+#   GAME_REFS_REPO   例如 DPS-Love/tbh-game-refs
+#   GAME_REFS_TOKEN  对那个仓库有读权限的 PAT
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的标签（必须已经存在）'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      # 标签和 csproj 里的版本号对不上，多半是改了一个忘了另一个。
+      # 与其发出去一个名字和内容不一致的包，不如在这里停下。
+      - name: 核对版本号
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = if ('${{ inputs.tag }}') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+          $tagVer = $tag -replace '^v', ''
+          $csproj = Get-Content src/TbhCombatTracker/TbhCombatTracker.csproj -Raw
+          if ($csproj -notmatch '<Version>([^<]+)</Version>') { throw 'csproj 里没有 <Version>' }
+          $projVer = $Matches[1]
+          if ($tagVer -ne $projVer) {
+            throw "标签 $tag 对应版本 $tagVer，但 csproj 里是 $projVer。改一致再发。"
+          }
+          "tag=$tag"        >> $env:GITHUB_OUTPUT
+          "version=$projVer" >> $env:GITHUB_OUTPUT
+          Write-Host "版本 $projVer"
+
+      # 有没有私有引用仓库，决定这次能不能真的编译
+      - name: 取游戏引用程序集
+        id: refs
+        shell: pwsh
+        env:
+          REFS_REPO: ${{ secrets.GAME_REFS_REPO }}
+          REFS_TOKEN: ${{ secrets.GAME_REFS_TOKEN }}
+        run: |
+          if (-not $env:REFS_REPO -or -not $env:REFS_TOKEN) {
+            Write-Host '::notice::没配 GAME_REFS_REPO/GAME_REFS_TOKEN，跳过编译，只建草稿 Release。'
+            'available=false' >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          git clone --depth 1 "https://x-access-token:$env:REFS_TOKEN@github.com/$env:REFS_REPO.git" refs-checkout
+          if (-not (Test-Path 'refs-checkout/BepInEx/interop/Assembly-CSharp.dll')) {
+            throw "引用仓库 $env:REFS_REPO 里没有 BepInEx/interop/Assembly-CSharp.dll"
+          }
+          'available=true' >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.refs.outputs.available == 'true'
+        with:
+          dotnet-version: '8.0.x'
+
+      # RefsOnly=true 关掉"找不到游戏本体"的检查——CI 上本来就没有 exe，
+      # 有 BepInEx 的引用程序集就够编译了。
+      - name: 编译并打包
+        if: steps.refs.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          $refs = Join-Path $PWD 'refs-checkout/BepInEx'
+          dotnet build src/TbhCombatTracker/TbhCombatTracker.csproj -c Release --nologo `
+            -p:RefsOnly=true -p:BepInExDir="$refs"
+          if ($LASTEXITCODE -ne 0) { throw '编译失败' }
+          ./tools/package-release.ps1 -SkipBuild
+
+      - name: 发布
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ steps.ver.outputs.tag }}'
+          $zip = "build/release/TbhCombatTracker-$tag.zip"
+
+          if (Test-Path $zip) {
+            gh release create $tag $zip --generate-notes --title "TBH Combat Tracker $tag"
+            Write-Host "已发布，产物 $zip"
+          } else {
+            gh release create $tag --draft --generate-notes --title "TBH Combat Tracker $tag"
+            Write-Host '::notice::建的是草稿，还没有产物。在装了游戏的机器上跑 pwsh tools/package-release.ps1 -Upload 补产物并发布。'
+          }

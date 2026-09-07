@@ -15,13 +15,19 @@
     **不打包 BepInEx 本体**：它是 LGPL 的独立项目，版本更新频繁，
     让用户自己去官方构建站拿更稳妥，也免得我们变成它的分发方。
 
+    -Upload 会把包传到同名标签的 GitHub Release 上并发布它。
+    CI 编译不了这个项目（要引用从游戏本体生成的 Il2CppInterop 程序集），
+    所以默认流程是：打标签 -> CI 建草稿 Release -> 在装了游戏的机器上跑这个脚本补产物。
+
 .EXAMPLE
     pwsh tools/package-release.ps1
     pwsh tools/package-release.ps1 -Configuration Debug
+    pwsh tools/package-release.ps1 -Upload
 #>
 param(
     [string]$Configuration = 'Release',
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$Upload
 )
 
 $ErrorActionPreference = 'Stop'
@@ -90,6 +96,30 @@ Remove-Item $stage -Recurse -Force
 $size = [math]::Round((Get-Item $zip).Length / 1KB, 1)
 Write-Host "`n发布包已生成：" -ForegroundColor Green
 Write-Host "  $zip  ($size KB)"
+
+if ($Upload) {
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        Write-Error '要 -Upload 得先装 GitHub CLI：https://cli.github.com/'
+    }
+    $tag = "v$version"
+    Write-Host "`n上传到 Release $tag …" -ForegroundColor Cyan
+
+    # 标签还没有对应的 Release 就现建一个（正常流程里 CI 已经建好草稿了）
+    gh release view $tag *> $null
+    if ($LASTEXITCODE -ne 0) {
+        gh release create $tag --draft --generate-notes --title "TBH Combat Tracker $tag"
+        if ($LASTEXITCODE -ne 0) { Write-Error "建 Release $tag 失败。标签推上去了吗？" }
+    }
+
+    gh release upload $tag $zip --clobber
+    if ($LASTEXITCODE -ne 0) { Write-Error '上传失败。' }
+
+    gh release edit $tag --draft=false
+    if ($LASTEXITCODE -ne 0) { Write-Error '产物传上去了，但取消草稿状态失败，去网页上点一下发布。' }
+
+    Write-Host "已发布：https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/$tag" -ForegroundColor Green
+    return
+}
 Write-Host @"
 
 包内结构：

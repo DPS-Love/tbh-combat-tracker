@@ -309,6 +309,33 @@ LICENSE
    `build/downloads/` 的 BepInEx 安装包一起发出去——`.gitignore` 已经挡住了，
    但手动打包时容易误带
 
+### 发布一个新版本
+
+```powershell
+# 1. 改 csproj 里的 <Version>，提交
+# 2. 打标签推上去，CI 会建好 Release 和发布说明
+git tag v0.2.0 && git push origin v0.2.0
+# 3. 在装了游戏的机器上补产物并发布
+pwsh tools/package-release.ps1 -Upload
+```
+
+第 3 步为什么不能交给 CI：编译要引用 BepInEx 用 Il2CppInterop **从游戏本体生成**的
+代理程序集（`BepInEx/interop/Assembly-CSharp.dll` 等）。那批程序集是游戏代码的派生物，
+不能进公开仓库；而 runner 上也生成不了——生成它们需要游戏的 `GameAssembly.dll`
+和 `global-metadata.dat`。所以 [.github/workflows/release.yml](.github/workflows/release.yml)
+默认只建**草稿** Release（核对版本号 + 生成发布说明），产物由本机补上。
+
+想让 CI 也能自己编译，就建一个**私有**仓库放这两个目录：
+
+```
+BepInEx/core/*.dll
+BepInEx/interop/*.dll
+```
+
+然后在本仓库配 `GAME_REFS_REPO`（如 `DPS-Love/tbh-game-refs`）和 `GAME_REFS_TOKEN`
+两个 secret。工作流检测到就会自动切换成"CI 编译 + 直接发布"，不需要改 YAML。
+这样游戏派生的程序集始终留在私有仓库里，不对外分发。
+
 ## 反作弊风险
 
 已经把游戏的反作弊完整逆向过一遍，结论和证据在 **[docs/anticheat.md](docs/anticheat.md)**。

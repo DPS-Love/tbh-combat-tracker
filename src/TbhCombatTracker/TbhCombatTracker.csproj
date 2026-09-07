@@ -83,7 +83,8 @@
 
   <!-- 编译前检查依赖是否就绪，给出人话报错而不是一堆 CS0246 -->
   <Target Name="CheckGameRefs" BeforeTargets="BeforeBuild">
-    <Error Condition="!Exists('$(GameDir)\TaskBarHero.exe')"
+    <!-- RefsOnly=true 是给 CI 的：那里只有引用程序集，本来就没有游戏本体 -->
+    <Error Condition="!Exists('$(GameDir)\TaskBarHero.exe') And '$(RefsOnly)' != 'true'"
            Text="找不到游戏：$(GameDir)。请修改根目录的 Directory.Build.props 里的 GameDir。" />
     <Error Condition="!Exists('$(BepInExCoreDir)\BepInEx.Unity.IL2CPP.dll')"
            Text="找不到 $(BepInExCoreDir)\BepInEx.Unity.IL2CPP.dll。请先安装 BepInEx 6 IL2CPP：pwsh tools/install-bepinex.ps1" />
