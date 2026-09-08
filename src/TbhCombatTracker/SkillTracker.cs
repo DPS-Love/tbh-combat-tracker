@@ -37,7 +37,7 @@ namespace TbhCombatTracker
             try
             {
                 _skill = NameOf(skill);
-                var owner = skill.bhnf;
+                var owner = skill.bilm;
                 _ownerId = owner != null ? owner.GetInstanceID() : 0;
                 _at = Time.realtimeSinceStartup;
             }
@@ -65,7 +65,7 @@ namespace TbhCombatTracker
             new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>
-        /// 技能显示名。优先走游戏的本地化——<c>ActiveSkill.skillCache</c>(vt)
+        /// 技能显示名。优先走游戏的本地化——<c>ActiveSkill.skillCache</c>(wl)
         /// 里挂着 <c>SkillInfoData</c>，它的 <c>SkillNameKey</c> 就是权威的本地化键
         /// （和英雄的 <c>HeroNameKey</c> 同一套路，字段名都没被混淆）。
         /// 查不到才退回类名整理出来的英文名。
@@ -82,7 +82,7 @@ namespace TbhCombatTracker
             string name = null;
             try
             {
-                var key = skill.skillCache?.bfmw?.SkillNameKey;
+                var key = skill.skillCache?.bgjl?.SkillNameKey;
                 name = Localize.TryGet(key);
             }
             catch { /* 没有技能数据的（怪物普攻之类）走兜底 */ }

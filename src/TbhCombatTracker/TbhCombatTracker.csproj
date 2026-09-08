@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>TbhCombatTracker</AssemblyName>
     <RootNamespace>TbhCombatTracker</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <EnableDynamicLoading>false</EnableDynamicLoading>
 
     <Authors>DPS Love Project</Authors>

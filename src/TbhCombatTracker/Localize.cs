@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-using GLoc = global::nt;
+using GLoc = global::nz;
 
 namespace TbhCombatTracker
 {
@@ -9,13 +9,14 @@ namespace TbhCombatTracker
     /// 取游戏当前语言的译文。
     ///
     /// 游戏用的是 Unity Localization 包（interop 里有 <c>Unity.Localization.dll</c>），
-    /// 封装在全局类 <c>nt</c> 上——一组 string 扩展方法。交叉引用
-    /// <c>LocalizationSettings.get_StringDatabase</c> 的 16 个调用点，其中 4 个来自 <c>nt</c>：
+    /// 封装在全局类 <c>nz</c> 上（1.01.05 时叫 <c>nt</c>）——一组 string 扩展方法：
     /// <code>
-    /// nt.gft(key)          nt.gfv(key)           两个单参版本，大概率对应两张不同的表
-    /// nt.gfu(key, table)   nt.gfw(key, table)    双参版本
-    /// nt.gfx(key, args)                          带格式化参数
+    /// nz.gix(key)          nz.giz(key)           两个单参版本，对应两张不同的表
+    /// nz.giy(key, table)   nz.gja(key, table)    双参版本
+    /// nz.gjb(key, args)                          带格式化参数
     /// </code>
+    /// 这五个在 dump 里的先后顺序和 1.01.05 的 gft/gfu/gfv/gfw/gfx 一一对应，
+    /// 所以 giz 应该就是原来的 gfv。但这只是顺序推断，下面两个都查，不押单边。
     ///
     /// 哪个单参版本对应哪张表，静态看不出来——所以运行时两个都试，谁先返回有效译文就用谁，
     /// 结果按键缓存。查不到就退回调用方给的兜底文本，**绝不显示原始键**。
@@ -55,21 +56,22 @@ namespace TbhCombatTracker
         }
 
         /// <summary>
-        /// 先 gfv 后 gft。
+        /// 先 giz 后 gix。
         ///
-        /// 实测：中文界面下 <c>gft("HeroName_401")</c> 返回的是 "Priest"——英文源文本，
-        /// 不是玩家当前语言。所以 gfv 才是走本地化表的那个，gft 只作兜底。
-        /// （两个函数哪个对哪张表，静态分析看不出来，是靠这条日志确定的。）
+        /// 1.01.05 实测：中文界面下 <c>gft("HeroName_401")</c> 返回 "Priest"——英文源文本，
+        /// 不是玩家当前语言，<c>gfv</c> 才是走本地化表的那个。1.2.0 里按 dump 顺序对应到
+        /// giz / gix。顺序万一推断反了也不会错：两个都查，谁先返回有效译文就用谁，
+        /// 打开 LocalizationDebug 能看到每个键在两边分别返回了什么。
         /// </summary>
         private static string Lookup(string key)
         {
             string first = null, second = null;
 
-            try { first = GLoc.gfv(key); } catch { /* 表不存在会抛 */ }
-            try { second = GLoc.gft(key); } catch { }
+            try { first = GLoc.giz(key); } catch { /* 表不存在会抛 */ }
+            try { second = GLoc.gix(key); } catch { }
 
             if (Mod.Config.LocalizationDebug.Value)
-                Mod.Log.Msg($"[i18n] '{key}'  gfv='{first ?? "null"}'  gft='{second ?? "null"}'");
+                Mod.Log.Msg($"[i18n] '{key}'  giz='{first ?? "null"}'  gix='{second ?? "null"}'");
 
             if (!LooksUnresolved(key, first)) return first;
             if (!LooksUnresolved(key, second)) return second;

@@ -10,8 +10,12 @@
 > **只想装来用？** 看 [docs/INSTALL.md](docs/INSTALL.md)，本 README 是给开发者的。
 > 发布包从 [Releases](../../releases) 下载。
 
-已在**游戏 1.01.05** + **BepInEx 6.0.0-be.785** 上完整验证：伤害/承伤统计、职业识别、
+在**游戏 1.01.05** + **BepInEx 6.0.0-be.785** 上完整实测过：伤害/承伤统计、职业识别、
 关卡自动分段、面板交互。反作弊风险评估见 [docs/anticheat.md](docs/anticheat.md)。
+
+> **游戏 1.2.0**：混淆名全变了，已按 [docs/symbols.md 第 11 节](docs/symbols.md) 重新对齐，
+> `sigcheck` 全部命中。但这只是静态验证（签名 + 调用点 + 机器码唯一性），
+> **数值和分类还没进游戏复核过**。
 
 ---
 
@@ -85,7 +89,7 @@ dotnet build src/TbhCombatTracker/TbhCombatTracker.csproj -p:GameDir="E:\Steam\s
 标题栏的按钮在**输出 / 承伤**两个视图间切换。整个窗口都能拖动。
 
 > 治疗统计做过但撤掉了：游戏的回血和伤害共用 `UnitHealth.ChangeHp`，但回血这条路径的
-> `Unit source` 恒为 null（实测 `pf.gsi(1.5, null)`），归因不到治疗者，全部只能落到
+> `Unit source` 恒为 null（实测增量 1.5、source 为 null），归因不到治疗者，全部只能落到
 > "自动回复"一档，没有统计价值。要做的话得从技能侧另找 hook 点。
 
 面板形制参考 FFXIV ACT 的 [Horizoverlay](https://github.com/bsides/horizoverlay)：每个来源一张
@@ -127,24 +131,28 @@ dotnet build src/TbhCombatTracker/TbhCombatTracker.csproj -p:GameDir="E:\Steam\s
 ## 工作原理
 
 ```
-Monster.grd(DamageInfo, bool)          ← Prefix/Finalizer: 记下暴击/伤害类型/元素属性
-  └─ UnitHealth.gsi(float, Unit)       ← Postfix: 负数=最终伤害，第二参=攻击者
+Monster.gun(DamageInfo, bool)          ← Prefix/Finalizer: 记下暴击/伤害类型/元素属性
+  └─ UnitHealth.gvz(float, Unit)       ← Postfix: 负数=最终伤害，第二参=攻击者
 ```
 
-游戏的伤害结算分两步：`grd`（= `TakeDamage`）拿到带分类信息的 `DamageInfo`，
-内部算完暴击和抗性减免后，把**最终增量**交给 `gsi`（= `ChangeHp`）改血量——
+游戏的伤害结算分两步：`gun`（= `TakeDamage`）拿到带分类信息的 `DamageInfo`，
+内部算完暴击和抗性减免后，把**最终增量**交给 `gvz`（= `ChangeHp`）改血量——
 负数是伤害，正数是治疗，两者共用同一个入口。
 
-单独 hook 任何一个都不够：`grd` 只有减免前的 `OriginDamage`，`gsi` 只有一个裸 float。
-所以用 Prefix/Finalizer 把 `grd` 夹住，在中间的 `gsi` 里把两边的信息拼起来。
+单独 hook 任何一个都不够：`gun` 只有减免前的 `OriginDamage`，`gvz` 只有一个裸 float。
+所以用 Prefix/Finalizer 把 `gun` 夹住，在中间的 `gvz` 里把两边的信息拼起来。
 
-攻击者归因靠 `gsi` 的第二个参数 `Unit source`，不用猜。
+攻击者归因靠 `gvz` 的第二个参数 `Unit source`，不用猜。
 
-挂哪个类由覆写关系决定：怪物的 `ph` 没覆写 `gsi`，走基类 `pj.gsi`；英雄的 `pf` 覆写了，
-必须单独挂 `pf.gsi`。
+挂哪个类由覆写关系决定：怪物的 `pn` 没覆写 `gvz`，走基类 `pp.gvz`；英雄的 `pl` 覆写了，
+必须单独挂 `pl.gvz`。
 
-> 这条链路是**运行时诊断实测**出来的，不是从签名推的。中间押错过 `gsd(Unit, Vector3, float)`
-> ——那个签名看着完全像伤害，实际是血条初始化。教训见 [docs/symbols.md](docs/symbols.md) 第 2 节。
+> 这条链路是**运行时诊断实测**出来的，不是从签名推的。中间押错过 `(Unit, Vector3, float)`
+> 那个方法——签名看着完全像伤害，实际是血条初始化。教训见
+> [docs/symbols.md](docs/symbols.md) 第 2 节。
+>
+> 上面这些三字母名字每次游戏更新都会变（1.01.05 时叫 `grd` / `gsi` / `ph` / `pj` / `pf`）。
+> 重新对齐的方法和完整新旧对照在 [docs/symbols.md](docs/symbols.md) 第 11 节。
 
 代码分工：
 
@@ -171,12 +179,12 @@ dotnet run --project tools/sigcheck/sigcheck.csproj
 它直接读 `BepInEx\interop\Assembly-CSharp.dll`，打印我们 hook 的方法的真实签名。
 全部命中返回 0，有缺失返回 2。
 
-对着 be.785 + 游戏 1.01.05 的实测结果，三个原本的风险点都已确认：
+对着 be.785 的实测结果，三个原本的风险点都已确认（下表的名字是 1.2.0 的）：
 
 | 风险点 | 实测结果 |
 |---|---|
-| 形参名是否被重命名 | ✅ 保留：`gsi(Single a, Unit b)`、`grd(DamageInfo a, Boolean b)` |
-| 方法是否在预期类型上声明 | ✅ `pf.gsi` 是 `override`、`pj.gsi` 是 `virtual`，`DeclaredMethod` 都拿得到 |
+| 形参名是否被重命名 | ✅ 保留：`gvz(Single a, Unit b)`、`gun(DamageInfo a, Boolean b)` |
+| 方法是否在预期类型上声明 | ✅ `pl.gvz` 是 `override`、`pp.gvz` 是 `virtual`，`DeclaredMethod` 都拿得到 |
 | `DamageInfo` 生成形态 | ✅ class（继承 `Il2CppSystem.ValueType`），字段一律变成属性，现有代码兼容 |
 
 还有两个**只靠静态分析发现不了**的坑，都是实跑才暴露的，见下面两节。
@@ -269,12 +277,28 @@ pwsh tools/dump-symbols.ps1
 ```
 
 `sigcheck` 返回 2 就说明混淆名变了。按 [docs/symbols.md](docs/symbols.md) 里记录的
-"识别特征"在新 dump 里重新定位，然后改两个地方：
+"识别特征"在新 dump 里重新定位——**第 11 节有上一次（1.01.05 → 1.2.0）的完整过程和
+新旧对照表，照着走即可**。三件趁手的工具：
+
+```powershell
+# 列某个类的方法和 RVA：签名唯一的直接就能认，RVA 相同的是同一段机器码
+python tools/extract-types.py build/dump/dump.cs pp --methods
+
+# 谁调用了它 / 它调用了谁：死代码没有调用点，调用点分布能定身份
+python tools/xref-scan.py --targets pp.hbs
+
+# 机器码是否全局唯一：不唯一的绝对不能挂 hook，会 NRE 刷屏
+python tools/safe-hooks.py --types pp pl pn Monster Hero --show-unsafe
+```
+
+定位完改这几个地方：
 
 - `tools/sigcheck/Program.cs` 顶部的 `Targets`
 - `src/TbhCombatTracker/Patches.cs` 顶部的 using 别名和方法名常量
+- `Localize.cs` / `SkillTracker.cs` / `Diagnostics.cs` 里零星几个字段名
 
 注意游戏更新后 BepInEx 的 `interop\` 缓存也要清掉重新生成，否则拿到的还是旧签名。
+（启动一次游戏就会自动重建。）
 
 ---
 
@@ -304,7 +328,7 @@ LICENSE
 发布前自查：
 
 1. 在**干净的游戏目录**上按 `安装说明.md` 从零走一遍
-2. 写清楚测试过的游戏版本（当前 1.01.05）和 BepInEx 构建号（当前 be.785）
+2. 写清楚测试过的游戏版本（当前 1.2.0）和 BepInEx 构建号（当前 be.785）
 3. **不要**把 `build/dump/` 的符号 dump（52MB，游戏反编译产物）或
    `build/downloads/` 的 BepInEx 安装包一起发出去——`.gitignore` 已经挡住了，
    但手动打包时容易误带

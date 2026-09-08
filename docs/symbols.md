@@ -1,7 +1,9 @@
 # Task Bar Hero — 逆向符号表
 
 > 来源：Il2CppDumper v6.7.46 对 `GameAssembly.dll` + `global-metadata.dat` 的 dump
-> 游戏版本：**1.01.05**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
+> 游戏版本：**1.2.0**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
+>
+> 1.01.05 → 1.2.0 的混淆名**全部变了**，重定位过程和新旧对照见第 11 节。
 
 ## 0. 混淆规律（重要）
 
@@ -24,33 +26,42 @@
 - 编译器生成的状态机名（`<HealthRegenAsync>d__20`、`<ApplyTickDamageAsync>d__8`）——
   混淆器不动这些，反而成了定位宿主类最可靠的锚点
 
-**结论：游戏每次更新，混淆名很可能全部变化。** 本文件就是为了让重新对齐时有据可查——
-更新后重跑 `tools/dump-symbols.ps1`，再按下面的"识别特征"重新定位即可。
+**结论：游戏每次更新，混淆名很可能全部变化。** 这不是假设——1.01.05 → 1.2.0 时，
+本文档记录的每一个混淆名都变了（`pj`→`pp`、`gsi`→`gvz`、`grd`→`gun`……），
+连前缀风格都从 `g*`/`m*` 换成了 `e*`/`n*`。
+
+本文件就是为了让重新对齐时有据可查——更新后重跑 `tools/dump-symbols.ps1`，
+再按下面的"识别特征"重新定位即可。第 11 节是上一次重定位的完整过程，可以照着走。
 
 ## 1. 类型映射
 
 | 混淆名 | 真实身份 | 命名空间 | 识别特征 |
 |---|---|---|---|
-| `bfc` | `IDamageable` | *(全局)* | 唯一被 `Unit` 实现的接口，有 `DamageableType` 属性 |
-| `pj` | `UnitHealth` | *(全局)* | `MonoBehaviour`，含 `SpriteSlider HpBar` + `Action<float> OnHpChange`；<br>还有编译器生成的状态机 `pj.<HealthRegenAsync>d__20`——**这个名字没被混淆，是最硬的指纹** |
-| `pf` | `HeroHealth` | *(全局)* | `: pj`，私有字段类型为 `Hero` |
-| `ph` | `MonsterHealth` | *(全局)* | `: pj`，私有字段类型为 `Monster` |
-| `vo` | `HeroCache`（英雄运行时数据） | *(全局)* | 含 `HeroInfoData` 字段 + `Hero` 反向引用 |
-| `Unit` | — 未混淆 | `TaskbarHero` | `abstract class Unit : MonoBehaviour, bfc` |
-| `Hero` | — 未混淆 | `TaskbarHero` | `class Hero : Unit`，`public vo cache` |
+| `bgg` | `IDamageable` | *(全局)* | 唯一被 `Unit` 实现的接口，有 `DamageableType` 属性 |
+| `pp` | `UnitHealth` | *(全局)* | `MonoBehaviour`，含 `SpriteSlider HpBar` + `Action<float> OnHpChange`；<br>还有编译器生成的状态机 `pp.<HealthRegenAsync>d__20`——**这个名字没被混淆，是最硬的指纹**；<br>另外 `Unit.UnitHealthController` 属性名也没混淆，顺着它的类型也能找到 |
+| `pl` | `HeroHealth` | *(全局)* | `: pp`，私有字段类型为 `Hero`；**覆写了 `gvz`** |
+| `pn` | `MonsterHealth` | *(全局)* | `: pp`，私有字段类型为 `Monster`；**不**覆写 `gvz` |
+| `wg` | `HeroCache`（英雄运行时数据） | *(全局)* | 含 `HeroInfoData` 字段 + `Hero` 反向引用；`Hero.cache` 的类型 |
+| `wl` | `SkillCache`（技能运行时数据） | *(全局)* | 含 `SkillInfoData` 字段；`ActiveSkill.skillCache` 的类型 |
+| `ot` | 窗口控制 | *(全局)* | 调 `os.SetWindowLong` / `GetWindowLong` 的那个类 |
+| `os` | Win32 P/Invoke 集合 | *(全局)* | 一堆 `extern`：`SetWindowLong` / `SetWindowPos` / `DwmExtendFrameIntoClientArea` |
+| `nz` | 本地化包装 | *(全局)* | 五个 `[Extension] static string`，见第 10 节 |
+| `bgn` | 治疗场（圣域生成的持续治疗区域） | *(全局)* | `PriestSanctuary` 调它的 `nxp(Unit, float, float, Vector3, UniqueModInfoData)` |
+| `Unit` | — 未混淆 | `TaskbarHero` | `abstract class Unit : MonoBehaviour, bgg` |
+| `Hero` | — 未混淆 | `TaskbarHero` | `class Hero : Unit`，`public wg cache` |
 | `Monster` | — 未混淆 | `TaskbarHero` | `class Monster : Unit`，`public EMonsterType MonsterType` |
 | `DamageInfo` | — 未混淆 | `TaskbarHero` | `struct`，字段全部保留原名 |
 
 ## 2. 伤害链路（已用运行时诊断实测确认）
 
 ```
-Monster.grd(DamageInfo, bool)                 [Monster slot 46] = TakeDamage
+Monster.gun(DamageInfo, bool)                 = TakeDamage
    │  内部完成暴击判定 / 抗性减免 / 吸收护盾结算
-   └─> UnitHealthController.gsi(float delta, Unit source)   [pj slot 9] = ChangeHp
+   └─> UnitHealthController.gvz(float delta, Unit source)   [pp slot 8] = ChangeHp
           delta < 0 → 伤害      delta > 0 → 治疗
 ```
 
-实测日志（诊断模式）：
+这条链路是 1.01.05 用诊断模式实测出来的（当时叫 `Monster.grd` → `pj.gsi`）：
 
 ```
 [diag] Monster.grd(DamageInfo, false)
@@ -60,43 +71,48 @@ Monster.grd(DamageInfo, bool)                 [Monster slot 46] = TakeDamage
 [diag] pj.gxq(1.5, false, false) → pf.gsi(1.5, null)      ← 治疗走同一入口，正数
 ```
 
-- **`grd` 提供分类信息**（暴击、伤害类型、伤害属性），但只有 `OriginDamage`（减免前）
-- **`gsi` 提供最终数值**（负数）和来源（`Unit source`）
-- 二者配对：`grd` 前后设置 / 清除"当前伤害上下文"，`gsi` 里读取
+1.2.0 只是换了名字，结构一模一样（对照见第 11 节）。
+
+- **`gun` 提供分类信息**（暴击、伤害类型、伤害属性），但只有 `OriginDamage`（减免前）
+- **`gvz` 提供最终数值**（负数）和来源（`Unit source`）
+- 二者配对：`gun` 前后设置 / 清除"当前伤害上下文"，`gvz` 里读取
 
 覆写关系决定了要挂哪个类：
 
 | 承伤方 | 走哪个实现 | 要挂的 hook |
 |---|---|---|
-| 怪物 | `ph` **没有**覆写 `gsi` → 走基类 `pj.gsi` | `pj.gsi`，且 `__instance` 是 `ph` |
-| 英雄 | `pf` **覆写了** `gsi` → 走 `pf.gsi` | `pf.gsi` |
+| 怪物 | `pn` **没有**覆写 `gvz` → 走基类 `pp.gvz` | `pp.gvz`，且 `__instance` 是 `pn` |
+| 英雄 | `pl` **覆写了** `gvz` → 走 `pl.gvz` | `pl.gvz` |
 
-> ⚠️ **`gsd(Unit, Vector3, float)` 不是伤害入口。** 签名看着像
+> ⚠️ **`gvu(Unit, Vector3, float)` 不是伤害入口。** 签名看着像
 > `ApplyDamage(attacker, hitPos, damage)`，实际是血条初始化：单位生成时调一次，
 > 第一个参数是**单位自己**，float 恒为 `-0.875`。这里踩过坑，别再押它。
+> （1.01.05 里它叫 `gsd`。注意 slot 号也变了：`gsd` 原本 slot 6、`gsi` slot 9，
+> 现在 `gvz` 是 slot 8、`gvu` 是 slot 9——**别拿 slot 号当锚点，只认签名**。）
 >
-> 同理 `een` 也不是——`Hero.een` 和 `Monster.een` 编译结果完全相同（共用 `0xC94760`），
-> 说明它只是个转发器，`grd` 才是各自的真实现。而且共用机器码的方法不能安全 hook，见第 7 节。
+> 同理 `eha` 也不是——`Hero.eha` 和 `Monster.eha` 编译结果完全相同（共用 `0xCABFD0`），
+> 说明它只是个转发器，`gun` 才是各自的真实现。而且共用机器码的方法不能安全 hook，见第 7 节。
+> （1.01.05 里这对叫 `een` / `grd`，共用地址是 `0xC94760`。）
 
 ## 3. 关键签名
 
 ```csharp
 // 全局命名空间 → Il2CppInterop 生成后为 Il2Cpp.*
-public class pj : MonoBehaviour {
+public class pp : MonoBehaviour {
     public SpriteSlider HpBar;              // 0x20
     public Action<float> OnHpChange;        // 0x28
-    protected Unit  bdhd;                   // 0x30  拥有者 Unit
-    protected float bdhe;                   // 0x38  当前 HP
-    protected float bdhf;                   // 0x3C  最大 HP
-    public virtual void gsd(Unit a, Vector3 b, float c);   // slot 6 = 血条初始化，**不是伤害**
-    public virtual void gsh();                             // slot 7
-    public virtual void gse();                             // slot 8
-    public virtual void gsi(float a, Unit b);              // slot 9 = ChangeHp ← 【伤害入口】
+    protected Unit  bdyt;                   // 0x30  拥有者 Unit
+    protected float bdyu;                   // 0x38  当前 HP
+    protected float bdyv;                   // 0x3C  最大 HP
+    public virtual void gvz(float a, Unit b);              // slot 8 = ChangeHp ← 【伤害入口】
+    public virtual void gvu(Unit a, Vector3 b, float c);   // slot 9 = 血条初始化，**不是伤害**
+    public void hbs(float a, bool b, bool c);              // 所有生命恢复的总入口
+    public void hbr(Unit a, float b, bool c, bool d);      // 带来源的恢复，内部转 hbs
 }
-// ph 只覆写 gsd/gsh，**没有**覆写 gsi → 怪物承伤走基类 pj.gsi
-public class ph : pj { private Monster bdew; public override void gsd(Unit a, Vector3 b, float c); }
-// pf 覆写了 gsi → 英雄承伤必须单独挂 pf.gsi
-public class pf : pj { private Hero    bdeg; public override void gsi(float a, Unit b); }
+// pn 不覆写 gvz → 怪物承伤走基类 pp.gvz
+public class pn : pp { private Monster bdwh; public override void gvu(Unit a, Vector3 b, float c); }
+// pl 覆写了 gvz → 英雄承伤必须单独挂 pl.gvz
+public class pl : pp { private Hero    bdvr; public override void gvz(float a, Unit b); }
 
 // TaskbarHero → Il2CppTaskbarHero.*
 public struct DamageInfo {
@@ -111,15 +127,17 @@ public struct DamageInfo {
     public List<BuffEffectData> HitEffects; // 0x20
 }
 
-public abstract class Unit : MonoBehaviour, bfc {
-    [SerializeField] protected bool b_isHero;      // 0x100  ← 阵营判定，最可靠
+public abstract class Unit : MonoBehaviour, bgg {
+    [SerializeField] protected bool b_isHero;      // ← 阵营判定，最可靠
     [SerializeField] protected ObscuredBool b_isLive;
-    public pj UnitHealthController;                // 0xB0
-    public abstract void een(DamageInfo a, bool b);        // slot 29 = IDamageable.TakeDamage
-                                                           //   ⚠ 只是转发器，且机器码与 Hero.een 共用，不可 hook
-    public abstract DamageableType eef();                  // slot 28
-    public abstract string gpz();                          // slot 16  疑似 Name
-    public abstract string gqa();                          // slot 17  疑似 DisplayName / Id
+    public pp UnitHealthController;                // ← 属性名没被混淆，找 pp 的第二条路
+    public virtual void eha(DamageInfo a, bool b);         // IDamageable.TakeDamage
+                                                           //   ⚠ 只是转发器，机器码与 Hero/Monster 共用，不可 hook
+    public virtual void gun(DamageInfo a, bool b);         // 真正的 TakeDamage ← 【分类入口】
+    public virtual bool gvg(Unit a);                       // 击杀相关，内部会走一次 pp.hbs（处决回复）
+    public virtual DamageableType egs();
+    public virtual string gti();                           // 疑似 Name
+    public virtual string gtj();                           // 疑似 DisplayName / Id
 }
 ```
 
@@ -141,12 +159,12 @@ BepInEx 的 Il2CppInterop **保留原始程序集名和命名空间**，所以�
 ```csharp
 using GUnit   = TaskbarHero.Unit;    // 有命名空间的照写
 using GHero   = TaskbarHero.Hero;
-using GUnitHealth = global::pj;      // 无命名空间的留在全局，起别名要加 global::
+using GUnitHealth = global::pp;      // 无命名空间的留在全局，起别名要加 global::
 ```
 
 引用的程序集是 `BepInEx\interop\Assembly-CSharp.dll`。
 
-> 对比：MelonLoader 会给所有东西加 `Il2Cpp` 前缀——`Il2CppTaskbarHero.Unit`、`Il2Cpp.pj`、
+> 对比：MelonLoader 会给所有东西加 `Il2Cpp` 前缀——`Il2CppTaskbarHero.Unit`、`Il2Cpp.pp`、
 > `Il2CppAssembly-CSharp.dll`。以后要是换回 MelonLoader，[Patches.cs](../src/TbhCombatTracker/Patches.cs)
 > 顶部那几行 using 要全部加前缀。
 
@@ -155,38 +173,43 @@ using GUnitHealth = global::pj;      // 无命名空间的留在全局，起别�
 已确认：
 
 - ✅ `DamageInfo` 被 Il2CppInterop 生成为 **class**（继承 `Il2CppSystem.ValueType`），字段变成属性
-- ✅ 形参名保留（`gsi(float a, Unit b)`、`grd(DamageInfo a, bool b)`），Harmony 按名注入可用
-- ✅ 伤害入口是 `gsi` 不是 `gsd`（见第 2 节）
+- ✅ 形参名保留（`gvz(float a, Unit b)`、`gun(DamageInfo a, bool b)`），Harmony 按名注入可用
+- ✅ 伤害入口是 ChangeHp 不是血条初始化（见第 2 节）
 - ✅ 单位 GameObject 名形如 `Hero_301(Clone)` / `Monster_30043(Clone)`，去掉 `(Clone)` 即可当显示名
 
 仍待确认：
 
-- `Unit.gpz()` / `gqa()` 的实际返回内容（能否拿到职业名而不只是 `Hero_301`）——开 `ProbeMode` 看
-- 持续伤害（DOT）/ 陷阱是否绕过 `grd` 直接调 `gsi`（若绕过，数值仍准，但分类落到"未分类"）
+- `Unit.gti()` / `gtj()` 的实际返回内容（能否拿到职业名而不只是 `Hero_301`）——开 `ProbeMode` 看
+- 持续伤害（DOT）/ 陷阱是否绕过 `gun` 直接调 `gvz`（若绕过，数值仍准，但分类落到"未分类"）
+- **1.2.0 的 hook 点只做了静态验证**（签名 + 调用点 + 机器码唯一性），
+  还没有像 1.01.05 那样跑一轮实测。恢复来源分类尤其值得用 `HealingDebug` 复核一次。
 
 ## 7. IL2CPP 方法体去重（打补丁前必读）
 
 IL2CPP 编译时会把**方法体完全相同**的函数合并成同一段机器码。本游戏里的实例：
 
-| 地址 | 共用它的方法 |
-|---|---|
-| `0x6B1620` | `Monster.gqq` / `Monster.gqs` |
-| `0xCAB440` | `pj.cjr` / `pj.gxp` / `pj.ode` / `pj.hm`（都是 `(Unit, float, bool, bool)`）|
-| `0xCAB320` | `pj.cdw` / `pj.lwx` / `pj.ftd` / `pj.gxm` / `pj.brl` |
-| `0xCABEC0` | `pj.nyo` / `pj.gxo` / `pj.nxa` |
-| `0xCAB370` | `pj.bvq` / `pj.gxt` |
-| `0x829540` | `pj.ehp` / `pj.OnDisable` |
-| `0xCAA120` | `pf.gsj` / `pf.dvq` / `pf.ioa` / `pf.gsg` |
-| `0xC94760` | `Hero.een` / `Monster.een` |
+| 地址 | 全局共用它的方法数 | 本项目相关的 |
+|---|---|---|
+| `0x6BAA90` | **1884** | `Monster.gua` / `Monster.guc`（空方法桩，全二进制通用）|
+| `0xA50B40` | 157 | `Hero.egs` |
+| `0xA78910` | 17 | `pp.gfs` / `pp.eag` / `pp.ont` |
+| `0xCD4100` | 5 | `pp.kky` / `pp.hbq` / `pp.lsb` / `pp.ghu` / `pp.oaj` |
+| `0xCD2D30` | 5 | `pl.gwa` / `pl.gvx` / `pl.hth` / `pl.iek` / `pl.gsk` |
+| `0xCD48A0` | 2 | `pp.nhm` / `pp.hbr`（都是 `(Unit, float, bool, bool)`）|
+| `0xCABFD0` | 2 | `Hero.eha` / `Monster.eha` ← **转发器，不可 hook** |
+
+（1.01.05 的对应例子是 `0x6B1620` 被 1872 个方法共用、`0xC94760` 被 `Hero.een`/`Monster.een`
+共用——数字变了，规律没变。）
 
 两个后果：
 
-1. **看起来的"多个候选方法"可能只是一个函数。** `pj` 表面上有 57 个方法，实际只有 31 段不同的机器码。
+1. **看起来的"多个候选方法"可能只是一个函数。** `pp` 表面上有 43 个方法，实际只有 34 段不同的机器码。
 2. **对同一地址挂两次 Harmony detour 会无限递归栈溢出**，表现为游戏启动闪退。
    批量打补丁前必须按原生函数指针去重——见 `Il2CppUtil.NativePointer`。
    `Patches.TryPatch` 和 `Diagnostics.Apply` 都做了这个守卫。
 
-查某个类里哪些方法共用地址，直接在 dump.cs 里按 `// RVA:` 分组即可。
+查某个类里哪些方法共用地址：`python tools/safe-hooks.py --types pp pl pn Monster Hero --show-unsafe`，
+或者直接在 dump.cs 里按 `// RVA:` 分组。
 
 ## 8. 英雄职业
 
@@ -212,8 +235,8 @@ public int    AttackDamage, CriticalChance, CriticalDamage, MaxHp, Armor, ...;
 运行时取法（`Patches.ReadClassType`）：
 
 ```
-Hero.cache          → vo（HeroCache）
-     .bflj          → HeroInfoData
+Hero.cache          → wg（HeroCache）
+     .bghw          → HeroInfoData
      .ClassType     → EEquipClassType
 ```
 
@@ -287,17 +310,21 @@ EventSystem.current.RaycastAll(pointerEventData, list)   ← 通用射线，遍�
 
 ## 10. 本地化文本
 
-游戏用 Unity Localization 包，封装在全局类 `nt` 上（一组 string 扩展方法）：
+游戏用 Unity Localization 包，封装在全局类 `nz` 上（一组 string 扩展方法）：
 
 ```csharp
-nt.gfv(key)          // ← 走本地化表，返回玩家当前语言
-nt.gft(key)          // ← 返回英文源文本，只能当兜底
-nt.gfu(key, table)   nt.gfw(key, table)   // 指定表名
-nt.gfx(key, args)                          // 带格式化参数
+nz.giz(key)          // ← 走本地化表，返回玩家当前语言
+nz.gix(key)          // ← 返回英文源文本，只能当兜底
+nz.giy(key, table)   nz.gja(key, table)   // 指定表名
+nz.gjb(key, args)                          // 带格式化参数
 ```
 
-> `gfv` / `gft` 哪个对哪张表，静态分析看不出来。是靠一条日志定的：
+> 哪个对哪张表，静态分析看不出来。1.01.05 是靠一条日志定的：
 > 中文界面下 `gft("HeroName_401")` 返回 `"Priest"`，`gfv` 才返回 `"牧师"`。
+> 1.2.0（`nz`）里五个方法在 dump 中的先后顺序和当年的
+> `gft`/`gfu`/`gfv`/`gfw`/`gfx` 一一对应，所以 `giz` 应当就是原来的 `gfv`。
+> **这只是顺序推断**——`Localize.Lookup` 两个都查、谁先返回有效译文用谁，
+> 顺序推断错了也不会显示成英文。
 
 两张表：`StringTable`（通用）和 `ItemTable`（道具）。语言 16 种。
 当前语言从 `LocalizationSettings.SelectedLocale`（**静态**属性；同名的
@@ -309,7 +336,7 @@ nt.gfx(key, args)                          // 带格式化参数
 | 东西 | 键 | 出处 |
 |---|---|---|
 | 英雄名 | `HeroName_401` | `HeroInfoData.HeroNameKey`，字段名没被混淆 |
-| 技能名 | — | `ActiveSkill.skillCache`(`vt`) → `.bfmw` → `SkillInfoData.SkillNameKey` |
+| 技能名 | — | `ActiveSkill.skillCache`(`wl`) → `.bgjl` → `SkillInfoData.SkillNameKey` |
 | 元素属性 | `Fire` / `Cold` / `Physical` … | **裸枚举名**就是键 |
 | 伤害类型 | 没有 | 见下 |
 
@@ -349,3 +376,94 @@ de-DE    Nahkampf / Geschoss / Flächen / Beschwörungs
 
 **DOT 和 Trap 在任何语言里都没有出处**，和 `None` 一起继续用 `BuiltinText` 的内置双语表。
 内置文本按 `LocalizationSettings.SelectedLocale` 选中/英，不硬编码中文——Mod 是公开发布的。
+
+## 11. 1.01.05 → 1.2.0 重定位记录
+
+游戏 2026-09-08 更新到 1.2.0，**本文档记录的混淆名全部失效**——`sigcheck` 12 项没找到。
+下面是完整的对照表和当时用的判据，下次更新照着走即可。
+
+### 类型
+
+| 1.01.05 | 1.2.0 | 判据 |
+|---|---|---|
+| `pj` UnitHealth | `pp` | 编译器生成的状态机 `<HealthRegenAsync>d__20` 名字没变；字段布局 `HpBar`/`OnHpChange`/`Unit`/`float`/`float` 完全一致 |
+| `pf` HeroHealth | `pl` | `: pp` + `private Hero` 字段 + 覆写 ChangeHp |
+| `ph` MonsterHealth | `pn` | `: pp` + `private Monster` 字段 + 不覆写 ChangeHp |
+| `bfc` IDamageable | `bgg` | `Unit : MonoBehaviour, bgg` |
+| `vo` HeroCache | `wg` | `Hero.cache` 的类型（`cache` 没被混淆）|
+| `vt` SkillCache | `wl` | `ActiveSkill.skillCache` 的类型（`skillCache` 没被混淆）|
+| `on` 窗口控制 | `ot` | 唯一调 `SetWindowLong`/`GetWindowLong` 的类 |
+| `nt` 本地化 | `nz` | 五个 `[Extension] static string`，签名组合唯一 |
+| `bfj` 治疗场 | `bgn` | `PriestSanctuary` 调它的 `nxp(Unit, float, float, Vector3, UniqueModInfoData)` |
+
+### 方法与字段
+
+| 1.01.05 | 1.2.0 | 判据 |
+|---|---|---|
+| `pj.gsi` ChangeHp | `pp.gvz` | `(float, Unit)` 在 `pp` 上唯一 |
+| `pj.gsd` 血条初始化 | `pp.gvu` | `(Unit, Vector3, float)` 唯一 |
+| `pj.gxq` 恢复总入口 | `pp.hbs` | 五个 `(float,bool,bool)` 候选里唯一有调用点的，且其中 2 处来自 `Unit` 的 TakeDamage |
+| `Monster.grd` TakeDamage | `Monster.gun` | `(DamageInfo,bool)` 且 Hero/Monster 的 RVA **互异** |
+| `Hero/Monster.een` 转发器 | `.eha` | 同签名但 Hero/Monster **共用同一 RVA** —— 反过来正好用来认转发器 |
+| `Unit.grt` 处决回复 | `Unit.gvg` | 唯一一个既接受 `Unit` 参数、又调用恢复总入口的方法 |
+| `on.glu` 点击穿透 | `ot.gpb` | `ot` 六个 `(bool)` 方法里唯一被 `WindowManager.Update()` 调用的 |
+| `PriestHeal.mti` | `.niu` | `HeroActiveSkill` 的执行槽；PriestHeal / Sanctuary 各自覆写且 RVA 互异 |
+| `Unit.gpz`/`gqa` | `.gti`/`.gtj` | `abstract string`，Hero/Monster 都覆写 |
+| `pf.bdeg` → Hero | `pl.bdvr` | `pl` 上唯一的 `Hero` 字段 |
+| `PriestHeal.bhfz` | `.bidv` | `PriestHeal` 上唯一的 `Hero` 字段。⚠ 它是治疗**目标**不是施法者，见第 2 节末尾 |
+| `ActiveSkill.bhnf` 拥有者 | `.bilm` | `ActiveSkill` 上唯一的 `Unit` 字段 |
+| `vt.bfmw` | `wl.bgjl` | `wl` 上唯一的 `SkillInfoData` 字段 |
+| `vo.bflj` | `wg.bghw` | `wg` 上唯一的 `HeroInfoData` 字段 |
+| `nt.gfv`/`gft` | `nz.giz`/`gix` | 按 dump 里的先后顺序对应（见第 10 节的告诫）|
+| `ActiveSkill.AttackDamage` | 不变 | 名字本来就没被混淆 |
+| `StageManager.stageState` / `b_StageStart` / `UI_Stage.text_StageName` | 不变 | `[SerializeField]`，混淆器动不了 |
+
+### 方法论
+
+按可靠性从高到低，**优先用排在前面的**：
+
+1. **没被混淆的名字**——`[SerializeField]` 字段、`public` struct 字段、枚举、编译器生成的
+   状态机名、`Unit.UnitHealthController` / `Hero.cache` / `ActiveSkill.skillCache` 这类属性。
+   一次都没变过。
+2. **签名在类内唯一**——`(float, Unit)` 认 ChangeHp、`(Unit, Vector3, float)` 认血条初始化。
+   `python tools/extract-types.py build/dump/dump.cs pp --methods`
+3. **RVA 关系**——同签名的一组方法里，各子类 RVA 互异的是真实现，共用同一 RVA 的是转发器。
+   `python tools/safe-hooks.py --types ... --show-unsafe`
+4. **调用点**——死代码没有调用点；"谁调用了它"和"它调用了谁"都能定身份。
+   `python tools/xref-scan.py --targets pp.hbs`
+5. **slot 号**——❌ **别用**。`gsd` 原本 slot 6、`gsi` slot 9，1.2.0 里对应的 `gvz` 是 slot 8、
+   `gvu` 是 slot 9，顺序整个变了。
+
+改完这两处，再跑 `sigcheck` 应当"全部命中"：
+
+- `tools/sigcheck/Program.cs` 顶部的 `Targets`
+- `src/TbhCombatTracker/Patches.cs` 顶部的 using 别名和方法名常量
+  （另外 `Localize.cs` / `SkillTracker.cs` / `Diagnostics.cs` 里也各有几个）
+
+> ⚠️ 静态验证到此为止只能保证"挂得上、不崩"。**数值和分类是否正确仍要进游戏实测**——
+> 尤其是恢复来源分类（`HealingDebug`）和伤害归因（面板对账）。
+
+---
+
+### 附：技能的「施法者」取哪个字段
+
+治疗归因踩过一次坑，记在这里。技能类上和单位有关的字段有三层：
+
+| 字段 | 偏移 | 声明于 | 是什么 |
+|---|---|---|---|
+| `bilm` | 0x38 | `ActiveSkill` | **施法者**（Unit）。所有技能都有，归因就用它 |
+| `bica` | 0x78 | `HeroActiveSkill` | **施法者**（Hero）。英雄技能专有，和上面同一个人 |
+| `bidv` | 0x80 | `PriestHeal` | 这次治疗的**目标**，❌ 不是施法者 |
+| `bidx` | 0x80 | `PriestSanctuary` | 展开的治疗场对象（`bgn`）|
+
+判据很直接：施法者在基类里已经存了两份，子类没理由再存第三份；而 `PriestHeal.bidv` 和
+`PriestSanctuary.bidx` 在**同一个偏移 0x80** 上——那个位置放的是「这个技能作用在什么东西上」，
+单体治疗放目标，领域技能放领域对象。
+
+拿 `bidv` 当施法者的后果：牧师给友军放「治愈」，治疗量记到**被治疗的友军**头上，
+面板上看起来像友军自己治疗了自己，牧师反而没数据。
+`PriestSanctuary` 那条路径一直取的是 `bilm`，所以只有「治愈」错、「圣域」是对的——
+这个不对称本身就是定位线索。
+
+> 这个错误从 1.01.05 就在（当时字段叫 `bhfz`），1.2.0 改名时被原样搬了过来。
+> 开 `HealingDebug` 会打 `施法者=X 目标=Y`，两个名字应当不同；相同就是又取错了。

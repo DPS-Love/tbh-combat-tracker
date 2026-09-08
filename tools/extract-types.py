@@ -55,6 +55,26 @@ def blocks(lines, want):
         i += 1
 
 
+# RVA 注释写在方法签名的上一行，形如
+#   // RVA: 0xCD4550 Offset: 0xCD2F50 VA: 0x180CD4550 Slot: 8
+RVA_LINE = re.compile(r'//\s*RVA:\s*(0x[0-9A-Fa-f]+|-1)')
+SIG_LINE = re.compile(r'^\s+(?:\[[^\]]*\]\s*)*(?:public|private|protected|internal)[^;{]*\([^;]*\)\s*\{')
+
+
+def methods(text):
+    """yield (rva, 签名)。RVA 相同说明 IL2CPP 把方法体合并了——那种地址不能安全 hook，
+    见 docs/symbols.md 第 7 节。"""
+    rva = '?'
+    for line in text.splitlines():
+        m = RVA_LINE.search(line)
+        if m:
+            rva = m.group(1)
+            continue
+        if SIG_LINE.match(line):
+            yield rva, line.strip().rstrip('{ ').strip()
+            rva = '?'
+
+
 def main():
     # Windows 控制台默认 GBK，中文提示会变乱码
     for stream in (sys.stdout, sys.stderr):
@@ -67,6 +87,9 @@ def main():
     ap.add_argument('dump')
     ap.add_argument('--grep', help='按子串匹配类型名，而不是精确匹配')
     ap.add_argument('--names-only', action='store_true', help='只列出匹配到的类型名和行号')
+    ap.add_argument('--methods', action='store_true',
+                    help='只列方法，每行 "RVA 签名"。RVA 相同 = 同一段机器码，'
+                         '游戏更新后靠签名重新定位 hook 点时最好用')
     # 类型名走 parse_known_args 收尾，这样 --names-only 放在类型名前后都能用
     args, extra = ap.parse_known_args()
 
@@ -90,6 +113,11 @@ def main():
         found += 1
         if args.names_only:
             print(f'{line_no}: {ns[14:]:35} {text.split(chr(10))[0]}')
+        elif args.methods:
+            print(f'// dump.cs:{line_no}  {text.split(chr(10))[0]}')
+            for rva, sig in methods(text):
+                print(f'  {rva:<12} {sig}')
+            print()
         else:
             print(f'// dump.cs:{line_no}')
             print(ns)
