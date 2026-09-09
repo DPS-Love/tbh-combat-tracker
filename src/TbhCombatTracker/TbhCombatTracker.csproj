@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>TbhCombatTracker</AssemblyName>
     <RootNamespace>TbhCombatTracker</RootNamespace>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <EnableDynamicLoading>false</EnableDynamicLoading>
 
     <Authors>DPS Love Project</Authors>
@@ -80,6 +80,27 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
+
+  <!--
+    补丁方法必须全部包 try/catch。从 Prefix 漏出去的异常会让 Harmony **跳过原方法**——
+    一个只读统计 Mod 因此能把游戏功能玩坏。游戏 1.2.2 上真发生过：一行调试日志读到
+    改了名的字段抛异常，挂在生命恢复总入口上的补丁于是让所有回血失效。
+    详情和判据见 tools/check-guards.py。这条检查挡在编译前面。
+  -->
+  <Target Name="CheckPatchGuards" BeforeTargets="BeforeBuild">
+    <Exec Command="python -c &quot;pass&quot;" ContinueOnError="true"
+          StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_HasPython" />
+    </Exec>
+    <Warning Condition="'$(_HasPython)' != '0'"
+             Text="没装 python，跳过了补丁异常防护检查。手动跑：python tools/check-guards.py" />
+    <Exec Condition="'$(_HasPython)' == '0'" ContinueOnError="true"
+          Command="python &quot;$(MSBuildThisFileDirectory)../../tools/check-guards.py&quot;">
+      <Output TaskParameter="ExitCode" PropertyName="_GuardExit" />
+    </Exec>
+    <Error Condition="'$(_HasPython)' == '0' And '$(_GuardExit)' != '0'"
+           Text="有补丁方法没被 try/catch 包住（详见上面的输出）。异常漏进 Harmony 的 Prefix 会让原方法不执行，把游戏玩坏。" />
+  </Target>
 
   <!-- 编译前检查依赖是否就绪，给出人话报错而不是一堆 CS0246 -->
   <Target Name="CheckGameRefs" BeforeTargets="BeforeBuild">

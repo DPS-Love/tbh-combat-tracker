@@ -37,7 +37,7 @@ namespace TbhCombatTracker
             try
             {
                 _skill = NameOf(skill);
-                var owner = skill.bilm;
+                var owner = skill.bilo;
                 _ownerId = owner != null ? owner.GetInstanceID() : 0;
                 _at = Time.realtimeSinceStartup;
             }
@@ -82,7 +82,7 @@ namespace TbhCombatTracker
             string name = null;
             try
             {
-                var key = skill.skillCache?.bgjl?.SkillNameKey;
+                var key = skill.skillCache?.bgjn?.SkillNameKey;
                 name = Localize.TryGet(key);
             }
             catch { /* 没有技能数据的（怪物普攻之类）走兜底 */ }

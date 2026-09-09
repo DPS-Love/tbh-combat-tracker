@@ -1,9 +1,11 @@
 # Task Bar Hero — 逆向符号表
 
 > 来源：Il2CppDumper v6.7.46 对 `GameAssembly.dll` + `global-metadata.dat` 的 dump
-> 游戏版本：**1.2.0**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
+> 游戏版本：**1.2.2**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
 >
-> 1.01.05 → 1.2.0 的混淆名**全部变了**，重定位过程和新旧对照见第 11 节。
+> 1.01.05 → 1.2.0 混淆名**全部变了**，重定位过程见第 11 节；
+> 1.2.0 → 1.2.2 只有**字段名整体平移**（方法名没动），见第 12 节。
+> 下文正文里的名字是 1.2.2 的。
 
 ## 0. 混淆规律（重要）
 
@@ -39,7 +41,7 @@
 |---|---|---|---|
 | `bgg` | `IDamageable` | *(全局)* | 唯一被 `Unit` 实现的接口，有 `DamageableType` 属性 |
 | `pp` | `UnitHealth` | *(全局)* | `MonoBehaviour`，含 `SpriteSlider HpBar` + `Action<float> OnHpChange`；<br>还有编译器生成的状态机 `pp.<HealthRegenAsync>d__20`——**这个名字没被混淆，是最硬的指纹**；<br>另外 `Unit.UnitHealthController` 属性名也没混淆，顺着它的类型也能找到 |
-| `pl` | `HeroHealth` | *(全局)* | `: pp`，私有字段类型为 `Hero`；**覆写了 `gvz`** |
+| `pl` | `HeroHealth` | *(全局)* | `: pp`，私有字段 `Hero bdvt`；**覆写了 `gvz`** |
 | `pn` | `MonsterHealth` | *(全局)* | `: pp`，私有字段类型为 `Monster`；**不**覆写 `gvz` |
 | `wg` | `HeroCache`（英雄运行时数据） | *(全局)* | 含 `HeroInfoData` 字段 + `Hero` 反向引用；`Hero.cache` 的类型 |
 | `wl` | `SkillCache`（技能运行时数据） | *(全局)* | 含 `SkillInfoData` 字段；`ActiveSkill.skillCache` 的类型 |
@@ -112,7 +114,7 @@ public class pp : MonoBehaviour {
 // pn 不覆写 gvz → 怪物承伤走基类 pp.gvz
 public class pn : pp { private Monster bdwh; public override void gvu(Unit a, Vector3 b, float c); }
 // pl 覆写了 gvz → 英雄承伤必须单独挂 pl.gvz
-public class pl : pp { private Hero    bdvr; public override void gvz(float a, Unit b); }
+public class pl : pp { private Hero    bdvt; public override void gvz(float a, Unit b); }
 
 // TaskbarHero → Il2CppTaskbarHero.*
 public struct DamageInfo {
@@ -236,7 +238,7 @@ public int    AttackDamage, CriticalChance, CriticalDamage, MaxHp, Armor, ...;
 
 ```
 Hero.cache          → wg（HeroCache）
-     .bghw          → HeroInfoData
+     .bghy          → HeroInfoData
      .ClassType     → EEquipClassType
 ```
 
@@ -336,7 +338,7 @@ nz.gjb(key, args)                          // 带格式化参数
 | 东西 | 键 | 出处 |
 |---|---|---|
 | 英雄名 | `HeroName_401` | `HeroInfoData.HeroNameKey`，字段名没被混淆 |
-| 技能名 | — | `ActiveSkill.skillCache`(`wl`) → `.bgjl` → `SkillInfoData.SkillNameKey` |
+| 技能名 | — | `ActiveSkill.skillCache`(`wl`) → `.bgjn` → `SkillInfoData.SkillNameKey` |
 | 元素属性 | `Fire` / `Cold` / `Physical` … | **裸枚举名**就是键 |
 | 伤害类型 | 没有 | 见下 |
 
@@ -451,19 +453,68 @@ de-DE    Nahkampf / Geschoss / Flächen / Beschwörungs
 
 | 字段 | 偏移 | 声明于 | 是什么 |
 |---|---|---|---|
-| `bilm` | 0x38 | `ActiveSkill` | **施法者**（Unit）。所有技能都有，归因就用它 |
-| `bica` | 0x78 | `HeroActiveSkill` | **施法者**（Hero）。英雄技能专有，和上面同一个人 |
-| `bidv` | 0x80 | `PriestHeal` | 这次治疗的**目标**，❌ 不是施法者 |
-| `bidx` | 0x80 | `PriestSanctuary` | 展开的治疗场对象（`bgn`）|
+| `bilo` | 0x38 | `ActiveSkill` | **施法者**（Unit）。所有技能都有，归因就用它 |
+| `bicc` | 0x78 | `HeroActiveSkill` | **施法者**（Hero）。英雄技能专有，和上面同一个人 |
+| `bidx` | 0x80 | `PriestHeal` | 这次治疗的**目标**，❌ 不是施法者 |
+| `bidz` | 0x80 | `PriestSanctuary` | 展开的治疗场对象（`bgn`）|
 
-判据很直接：施法者在基类里已经存了两份，子类没理由再存第三份；而 `PriestHeal.bidv` 和
-`PriestSanctuary.bidx` 在**同一个偏移 0x80** 上——那个位置放的是「这个技能作用在什么东西上」，
+判据很直接：施法者在基类里已经存了两份，子类没理由再存第三份；而 `PriestHeal.bidx` 和
+`PriestSanctuary.bidz` 在**同一个偏移 0x80** 上——那个位置放的是「这个技能作用在什么东西上」，
 单体治疗放目标，领域技能放领域对象。
 
-拿 `bidv` 当施法者的后果：牧师给友军放「治愈」，治疗量记到**被治疗的友军**头上，
+拿这个字段当施法者的后果：牧师给友军放「治愈」，治疗量记到**被治疗的友军**头上，
 面板上看起来像友军自己治疗了自己，牧师反而没数据。
-`PriestSanctuary` 那条路径一直取的是 `bilm`，所以只有「治愈」错、「圣域」是对的——
+`PriestSanctuary` 那条路径一直取的是施法者字段，所以只有「治愈」错、「圣域」是对的——
 这个不对称本身就是定位线索。
 
 > 这个错误从 1.01.05 就在（当时字段叫 `bhfz`），1.2.0 改名时被原样搬了过来。
 > 开 `HealingDebug` 会打 `施法者=X 目标=Y`，两个名字应当不同；相同就是又取错了。
+
+## 12. 1.2.0 → 1.2.2 重定位记录
+
+2026-09-09 的修复更新。这次范围小得多：**方法名一个没动，字段名整体向后平移了两位。**
+
+| 1.2.0 | 1.2.2 | 偏移 | 是什么 |
+|---|---|---|---|
+| `pl.bdvr` | `pl.bdvt` | 0x58 | HeroHealth → Hero |
+| `wg.bghw` | `wg.bghy` | 0x30 | HeroCache → HeroInfoData |
+| `wl.bgjl` | `wl.bgjn` | 0x10 | SkillCache → SkillInfoData |
+| `ActiveSkill.bilm` | `.bilo` | 0x38 | 施法者（Unit）|
+| `HeroActiveSkill.bica` | `.bicc` | 0x78 | 施法者（Hero）|
+| `PriestHeal.bidv` | `.bidx` | 0x80 | 治疗目标 |
+| `PriestSanctuary.bidx` | `.bidz` | 0x80 | 治疗场对象 |
+| `PriestHeal/Sanctuary.niu` | `.niw` | — | 技能执行入口（唯一变了的方法名）|
+
+**偏移量一个没变**，这是确认「同一个字段只是改了名」最省事的判据。
+
+`gvz` / `gun` / `gvg` / `hbs` / `gpb` / `eha` 全部原样保留，调用点分布也一致
+（`hbs` 仍是 2 处来自 `Unit.gun`、1 处来自 `Unit.gvg`；`gpb` 仍只被 `WindowManager.Update()` 调用），
+`Hero.eha` / `Monster.eha` 仍共用同一段机器码。
+
+> ⚠️ **「方法名还在」不等于「含义没变」。** 这次 `ActiveSkill.bilm` 就从 `Unit` 变成了 `int`
+> ——名字被复用给了别的字段。所以每次更新都要重新核对**类型和签名**，不能只看名字在不在。
+> 挂载日志现在会连参数类型一起打（`已挂载 pp.gvz(Single, Unit)`），错位一眼可见。
+
+### 这次更新暴露的真正问题
+
+1.2.2 刚更新时，装着 v0.2.1 的玩家**游戏里所有生命恢复都失效了**——现象是「牧师的治愈不回血」。
+
+原因链：
+
+```
+pl.bdvr 改名 → HealFunnel_Pre 里一行调试日志读它 → MissingMethodException
+            → 那个方法没有 try/catch → 异常漏进 Harmony 的 Prefix
+            → Prefix 抛异常 = 原方法不执行 → 挂在恢复总入口 pp.hbs 上 → 所有回血失效
+```
+
+一次会话里刷了 234 次。**一个只读的统计 Mod 把游戏功能玩坏了**，这比统计不准严重得多。
+
+教训不是「别写错字段名」——游戏每次更新都会改名，这类异常迟早还会出现。
+正确的目标是**出了异常也只影响统计，绝不影响游戏**：
+
+> **补丁方法是我们和游戏代码之间的边界，边界上一个异常都不许漏过去。**
+
+现在 `tools/check-guards.py` 会检查每个补丁方法的第一条语句是不是 `try`，
+并挂在构建流程前面（见 `TbhCombatTracker.csproj` 的 `CheckPatchGuards`），不合格直接编译失败。
+要求「第一条就是 try」而不是「方法体里有 catch」，是因为后者会放过只包了一半的写法——
+而这次出事的恰恰就是没被包住的那半边。

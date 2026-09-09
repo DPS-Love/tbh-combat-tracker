@@ -16,15 +16,15 @@ namespace TbhSigCheck
         private static readonly (string Type, string[] Methods)[] Targets =
         {
             ("pp", new[] { "gvz", "hbs" }),             // ChangeHp ← 主 hook；hbs ← 恢复总入口
-            ("pl", new[] { "gvz", "get_bdvr" }),         // HeroHealth.ChangeHp + 它持有的 Hero
+            ("pl", new[] { "gvz", "get_bdvt" }),         // HeroHealth.ChangeHp + 它持有的 Hero
             ("TaskbarHero.Monster", new[] { "gun" }),    // Monster.TakeDamage         ← 分类 hook
             ("TaskbarHero.Hero", new[] { "gun" }),       // Hero.TakeDamage            ← 承伤面板的分类
             ("ot", new[] { "gpb" }),                     // 点击穿透开关（Win32 兜底方案用）
             ("TaskbarHero.StageManager", new[] { "get_stageState", "get_b_StageStart" }), // 关卡分段信号
             ("TaskbarHero.UI_Stage", new[] { "get_text_StageName" }),  // 关卡名 ← 分段依据 + 面板标题
-            ("TaskbarHero.Combat.PriestHeal", new[] { "niu", "get_bidv" }), // niu ← 治疗归因括号；bidv 是治疗**目标**，只用于诊断日志
-            ("TaskbarHero.Combat.PriestSanctuary", new[] { "niu" }),   // 圣域，和治愈区分
-            ("TaskbarHero.Combat.ActiveSkill", new[] { "AttackDamage", "get_bilm" }), // 技能级归因
+            ("TaskbarHero.Combat.PriestHeal", new[] { "niw", "get_bidx" }), // niu ← 治疗归因括号；bidv 是治疗**目标**，只用于诊断日志
+            ("TaskbarHero.Combat.PriestSanctuary", new[] { "niw" }),   // 圣域，和治愈区分
+            ("TaskbarHero.Combat.ActiveSkill", new[] { "AttackDamage", "get_bilo" }), // 技能级归因
             ("TaskbarHero.Unit", new[] { "gti", "gtj", "gun", "gvg" }), // gun/gvg ← 恢复来源括号
             ("TaskbarHero.Combat.Projectile.HunterExplosiveBolt", new[] { "AttackDamage" }), // 唯一覆写它的技能
             ("nz", new[] { "giz", "gix" }),              // 本地化查询（译文 / 英文源）

@@ -58,17 +58,17 @@ namespace TbhCombatTracker
         //   python tools/xref-scan.py --targets ot.gpb ot.gpi ot.cso ot.jdx ot.hlg ot.orq
         private const string ClickThroughMethod = "gpb";
 
-        // PriestHeal.niu() —— 牧师主动治疗的执行入口，机器码全局唯一。
+        // PriestHeal.niw() —— 牧师主动治疗的执行入口，机器码全局唯一。
         // 治疗和伤害共用 UnitHealth.ChangeHp，但治疗那条路径的 Unit source 恒为 null
         // （实测增量 1.5、source 恒为 null），在血量入口无法归因。所以改从技能侧夹上下文：
         // niu() 前后记下 / 清除"当前治疗者"，中间落到 ChangeHp 的正数增量就归给它。
         // 和伤害那套 Monster.gun → pp.gvz 的配对是同一个套路。
-        private const string PriestHealMethod = "niu";
+        private const string PriestHealMethod = "niw";
 
         // 恢复来源的上游括号。交叉引用确认这几处都会走到 pp.hbs：
         //   Unit.gun(DamageInfo, bool)  2 处 —— 伤害结算内的生命偷取 / 每次攻击回复
         //   Unit.gvg(Unit)              1 处 —— 击杀时的处决回复
-        //   PriestHeal.niu()                —— 牧师主动治疗（经 pp.hbr 转一手）
+        //   PriestHeal.niw()                —— 牧师主动治疗（经 pp.hbr 转一手）
         // 三个方法的机器码都全局唯一（python tools/safe-hooks.py 确认）。
         //
         // hbs 是这么从五个同签名候选里挑出来的：另外四个 (float,bool,bool) 全是零调用点的
@@ -83,7 +83,7 @@ namespace TbhCombatTracker
         // 所以弹道和 AOE 的延迟伤害也会走到，是做技能级归因最准的位置。
         // 53 个技能类里只有 HunterExplosiveBolt 覆写了它，所以挂基类 + 它就够全覆盖。
         private const string SkillDamageFactoryMethod = "AttackDamage";
-        private const string SkillExecuteMethod = "niu";
+        private const string SkillExecuteMethod = "niw";
 
         public static void ApplyAll(Harmony harmony)
         {
@@ -215,7 +215,12 @@ namespace TbhCombatTracker
                     postfix: Hook(postfix),
                     finalizer: Hook(finalizer));
 
-                Mod.Log.Msg($"已挂载 {target.FullName}.{method}");
+                // 连签名一起打出来。混淆名会随游戏更新平移，可能出现"名字还在、含义变了"
+                // 的情况（1.2.2 里 ActiveSkill.bilm 就从 Unit 变成了 int）。
+                // 日志里带上参数类型，这种错位一眼就能看出来，不用等统计数字不对才发现。
+                var sig = string.Join(", ", Array.ConvertAll(
+                    original.GetParameters(), x => x.ParameterType.Name));
+                Mod.Log.Msg($"已挂载 {target.FullName}.{method}({sig})");
                 return true;
             }
             catch (Exception e)
@@ -360,7 +365,7 @@ namespace TbhCombatTracker
         {
             try
             {
-                var hero = health?.bdvr;
+                var hero = health?.bdvt;
                 if (hero != null) return hero.GetInstanceID();
             }
             catch { /* 退回组件 id 总比崩了强 */ }
@@ -377,20 +382,27 @@ namespace TbhCombatTracker
             catch { return "?"; }
         }
 
+        /// <summary>同上，取血量组件背后那个单位的名字。</summary>
+        private static string SafeTargetName(GUnitHealth health)
+        {
+            try { return health != null ? Naming.ForHealth(health).Name : "?"; }
+            catch { return "?"; }
+        }
+
         /// <summary>
-        /// PriestHeal.niu() —— 牧师「治愈」。
+        /// PriestHeal.niw() —— 牧师「治愈」。
         ///
-        /// 施法者取 <c>ActiveSkill.bilm</c>（技能的拥有者），**不能**取 <c>PriestHeal.bidv</c>。
+        /// 施法者取 <c>ActiveSkill.bilo</c>（技能的拥有者），**不能**取 <c>PriestHeal.bidx</c>。
         /// 后者是这次治疗的**目标**，取了它就会把治疗量记到被治疗的友军头上——
         /// 面板上于是出现「友军自己治疗了自己」，牧师反而没有数据。
         ///
-        /// 怎么确定 bidv 是目标而不是施法者：施法者在基类里已经有两份了
-        /// （<c>ActiveSkill.bilm</c> 0x38 是 Unit，<c>HeroActiveSkill.bica</c> 0x78 是 Hero），
+        /// 怎么确定 bidx 是目标而不是施法者：施法者在基类里已经有两份了
+        /// （<c>ActiveSkill.bilo</c> 0x38 是 Unit，<c>HeroActiveSkill.bicc</c> 0x78 是 Hero），
         /// 子类没有理由再存第三份。而且 <c>PriestSanctuary</c> 在同一个偏移 0x80 上存的是
-        /// 治疗场对象 <c>bidx</c>——两个技能都是在这个位置存「这次作用在什么东西上」。
+        /// 治疗场对象 <c>bidz</c>——两个技能都是在这个位置存「这次作用在什么东西上」。
         ///
         /// 这个错误从 1.01.05 就在（当时字段叫 bhfz），不是 1.2.0 改名引入的。
-        /// 圣域那条路径一直取的是 bilm，所以只有「治愈」错，「圣域」是对的。
+        /// 圣域那条路径一直取的是 bilo，所以只有「治愈」错，「圣域」是对的。
         /// </summary>
         private static void PriestHeal_Pre(GPriestHeal __instance,
                                            out (HealKind, SourceIdentity, bool) __state)
@@ -398,7 +410,7 @@ namespace TbhCombatTracker
             __state = default;
             try
             {
-                var hero = __instance?.bilm?.TryCast<GHero>();
+                var hero = __instance?.bilo?.TryCast<GHero>();
                 if (hero != null)
                 {
                     // 治疗延迟落地，括号跨不过去，所以额外记住施法者
@@ -414,8 +426,8 @@ namespace TbhCombatTracker
                 {
                     // 顺带把目标打出来：施法者和目标应当是**两个不同的名字**，
                     // 一样就说明又取错字段了。
-                    var target = SafeName(__instance?.bidv);
-                    Mod.Log.Msg($"[heal] PriestHeal.niu() 施法者={SafeName(hero)} 目标={target}");
+                    var target = SafeName(__instance?.bidx);
+                    Mod.Log.Msg($"[heal] PriestHeal.niw() 施法者={SafeName(hero)} 目标={target}");
                 }
             }
             catch (Exception e)
@@ -428,7 +440,8 @@ namespace TbhCombatTracker
         private static Exception PriestHeal_Fin((HealKind, SourceIdentity, bool) __state,
                                                 Exception __exception)
         {
-            Healing.Restore(__state);
+            try { Healing.Restore(__state); }
+            catch (Exception e) { LogOnceInternal("PriestHeal_Fin", e); }
             return __exception;
         }
 
@@ -449,7 +462,7 @@ namespace TbhCombatTracker
             __state = default;
             try
             {
-                var hero = __instance?.bilm?.TryCast<GHero>();
+                var hero = __instance?.bilo?.TryCast<GHero>();
                 if (hero != null)
                 {
                     Healing.RememberCaster(Naming.For(hero));
@@ -461,7 +474,7 @@ namespace TbhCombatTracker
                 }
 
                 if (Mod.Config.HealingDebug.Value)
-                    Mod.Log.Msg($"[heal] PriestSanctuary.niu() 施法者={SafeName(hero)}");
+                    Mod.Log.Msg($"[heal] PriestSanctuary.niw() 施法者={SafeName(hero)}");
             }
             catch (Exception e)
             {
@@ -472,50 +485,77 @@ namespace TbhCombatTracker
         private static Exception Sanctuary_Fin((HealKind, SourceIdentity, bool) __state,
                                                Exception __exception)
         {
-            Healing.Restore(__state);
+            try { Healing.Restore(__state); }
+            catch (Exception e) { LogOnceInternal("Sanctuary_Fin", e); }
             return __exception;
         }
 
-        /// <summary>Unit.grd —— 伤害结算内触发的恢复 = 生命偷取 / 每次攻击回复。</summary>
+        /// <summary>Unit.gun —— 伤害结算内触发的恢复 = 生命偷取 / 每次攻击回复。</summary>
         private static void UnitTakeDamage_Pre(out (HealKind, SourceIdentity, bool) __state)
-            => __state = Healing.Enter(HealKind.InCombat);
+        {
+            __state = default;
+            try { __state = Healing.Enter(HealKind.InCombat); }
+            catch (Exception e) { LogOnceInternal("UnitTakeDamage_Pre", e); }
+        }
 
         private static Exception UnitTakeDamage_Fin((HealKind, SourceIdentity, bool) __state,
                                                     Exception __exception)
         {
-            Healing.Restore(__state);
+            try { Healing.Restore(__state); }
+            catch (Exception e) { LogOnceInternal("UnitTakeDamage_Fin", e); }
             return __exception;
         }
 
-        /// <summary>Unit.grt(Unit killer) —— 击杀时触发的恢复 = 处决回复。</summary>
+        /// <summary>Unit.gvg(Unit) —— 击杀时触发的恢复 = 处决回复。</summary>
         private static void UnitOnKilled_Pre(out (HealKind, SourceIdentity, bool) __state)
-            => __state = Healing.Enter(HealKind.OnKill);
+        {
+            __state = default;
+            try { __state = Healing.Enter(HealKind.OnKill); }
+            catch (Exception e) { LogOnceInternal("UnitOnKilled_Pre", e); }
+        }
 
         private static Exception UnitOnKilled_Fin((HealKind, SourceIdentity, bool) __state,
                                                   Exception __exception)
         {
-            Healing.Restore(__state);
+            try { Healing.Restore(__state); }
+            catch (Exception e) { LogOnceInternal("UnitOnKilled_Fin", e); }
             return __exception;
         }
 
-        /// <summary>pj.gxq —— 所有恢复的总入口，只用来标记"确实走了漏斗"。</summary>
+        /// <summary>
+        /// pp.hbs —— 所有恢复的总入口，只用来标记"确实走了漏斗"。
+        ///
+        /// 【这里出过大事】1.2.2 更新后 <c>pl.bdvr</c> 改名，下面那行调试日志抛
+        /// <c>MissingMethodException</c>。它当时没有 try/catch，异常漏进了 Harmony 的
+        /// Prefix —— **Prefix 抛异常，原方法就不执行**，于是游戏里所有生命恢复全部失效，
+        /// 玩家看到的现象是"牧师的治愈不回血"。一个只读统计 Mod 把游戏玩坏了。
+        ///
+        /// 教训写在 <see cref="LogOnceInternal"/> 上方的说明里：补丁方法是我们和游戏代码
+        /// 之间的边界，**边界上一个异常都不许漏过去**。
+        /// </summary>
         private static void HealFunnel_Pre(GUnitHealth __instance, float a, bool b, bool c,
                                            out (bool, bool, bool) __state)
         {
-            __state = Healing.EnterFunnel(b, c);
-
-            if (Mod.Config.HealingDebug.Value)
+            __state = default;
+            try
             {
-                var target = Naming.ForHealth(__instance).Name;
-                Mod.Log.Msg($"[heal] gxq({a:0.##}, {b}, {c}) 目标={target} " +
-                            $"来源={Healing.KindName((int)Healing.Resolve())}");
+                __state = Healing.EnterFunnel(b, c);
+
+                if (Mod.Config.HealingDebug.Value)
+                    Mod.Log.Msg($"[heal] hbs({a:0.##}, {b}, {c}) 目标={SafeTargetName(__instance)} " +
+                                $"来源={Healing.KindName((int)Healing.Resolve())}");
+            }
+            catch (Exception e)
+            {
+                LogOnceInternal("HealFunnel_Pre", e);
             }
         }
 
         private static Exception HealFunnel_Fin((bool, bool, bool) __state, Exception __exception)
         {
-            Healing.RestoreFunnel(__state);
-            return __exception;
+            try { Healing.RestoreFunnel(__state); }
+            catch (Exception e) { LogOnceInternal("HealFunnel_Fin", e); }
+            return __exception; // 原样抛回去，不吞游戏的异常
         }
 
         /// <summary>Monster.grd(DamageInfo info, bool _) = TakeDamage —— 在结算前后夹住分类上下文。</summary>
@@ -553,7 +593,8 @@ namespace TbhCombatTracker
         /// <summary>Finalizer 即使原方法抛异常也会执行，保证上下文不会泄漏到下一次伤害。</summary>
         private static Exception TakeDamage_Fin(DamageContext __state, Exception __exception)
         {
-            DamageTracker.RestoreContext(__state);
+            try { DamageTracker.RestoreContext(__state); }
+            catch (Exception e) { LogOnceInternal("TakeDamage_Fin", e); }
             return __exception; // 原样抛回去，不吞游戏的异常
         }
 
@@ -611,7 +652,7 @@ namespace TbhCombatTracker
                 if (Cache.TryGetValue(id, out var cached)) return cached;
             }
 
-            // pl(HeroHealth) 持有它服务的那个 Hero（字段 bdvr），顺着它去解析职业，
+            // pl(HeroHealth) 持有它服务的那个 Hero（字段 bdvt），顺着它去解析职业，
             // 否则承伤面板只会显示 Hero_401 这种 GameObject 名。
             // 注意复用 For(hero)：它按**英雄**的实例 id 缓存，所以同一个英雄在
             // 输出面板和承伤面板拿到的是同一份身份，不会被重名后缀判成两个人。
@@ -661,7 +702,7 @@ namespace TbhCombatTracker
         }
 
         /// <summary>
-        /// 从 Hero.cache(wg).bghw(HeroInfoData).ClassType 读职业。
+        /// 从 Hero.cache(wg).bghy(HeroInfoData).ClassType 读职业。
         /// HeroInfoData 的字段没被混淆（HeroKey / ClassType / HeroNameKey / IconPath），
         /// 是权威来源——不要去猜 GameObject 名里的数字。
         /// </summary>
@@ -669,7 +710,7 @@ namespace TbhCombatTracker
         {
             try
             {
-                var info = hero.cache?.bghw;
+                var info = hero.cache?.bghy;
                 if (info == null) return 0;
 
                 var classType = (int)info.ClassType;
@@ -730,7 +771,7 @@ namespace TbhCombatTracker
         {
             try
             {
-                return health.TryCast<GHeroHealth>()?.bdvr;
+                return health.TryCast<GHeroHealth>()?.bdvt;
             }
             catch
             {

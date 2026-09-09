@@ -13,9 +13,9 @@
 在**游戏 1.01.05** + **BepInEx 6.0.0-be.785** 上完整实测过：伤害/承伤统计、职业识别、
 关卡自动分段、面板交互。反作弊风险评估见 [docs/anticheat.md](docs/anticheat.md)。
 
-> **游戏 1.2.0**：混淆名全变了，已按 [docs/symbols.md 第 11 节](docs/symbols.md) 重新对齐，
-> `sigcheck` 全部命中。但这只是静态验证（签名 + 调用点 + 机器码唯一性），
-> **数值和分类还没进游戏复核过**。
+> **游戏 1.2.2**：1.01.05 → 1.2.0 混淆名全变（[symbols.md 第 11 节](docs/symbols.md)），
+> 1.2.0 → 1.2.2 字段名整体平移（[第 12 节](docs/symbols.md)）。均已重新对齐，
+> `sigcheck` 全部命中，调用点和机器码唯一性都复核过。
 
 ---
 
@@ -239,6 +239,30 @@ python tools/safe-hooks.py --show-unsafe   # 看被排除的和它们的共用�
 `Patches.TryPatch` 和 `Diagnostics.Apply` 都按原生函数指针做了去重守卫
 （[Il2CppUtil.cs](src/TbhCombatTracker/Il2CppUtil.cs)）。
 
+### 补丁方法漏出异常会把游戏玩坏（最严重的坑）
+
+**Harmony 的 Prefix 抛异常，原方法就不执行。** 一个只读的统计 Mod 因此可以把游戏功能整个搞没。
+
+这不是假想。游戏 1.2.2 更新后 `pl.bdvr` 字段改名，`HealFunnel_Pre` 里**一行调试日志**
+读它时抛 `MissingMethodException`。那个方法当时没有 try/catch，异常漏进 Prefix，
+而这个补丁挂在生命恢复的总入口 `pp.hbs` 上——于是游戏里所有回血失效，
+玩家看到的现象是「牧师的治愈不回血」，一次会话刷了 234 次异常。
+
+教训不是「别写错字段名」。游戏每次更新都会改混淆名，这类异常迟早还会出现。
+正确的目标是**出了异常也只影响统计，绝不影响游戏**：
+
+> **补丁方法是我们和游戏代码之间的边界，边界上一个异常都不许漏过去。**
+
+所以有了这道构建前的闸门：
+
+```powershell
+python tools/check-guards.py --list
+```
+
+它检查每个补丁方法的第一条语句是不是 `try`，不合格**直接编译失败**
+（csproj 里的 `CheckPatchGuards`）。判据是「第一条就是 try」而不是「方法体里有 catch」——
+后者会放过只包了一半的写法，而这次出事的恰恰就是没被包住的那半边。
+
 ## 诊断模式
 
 搞不清某个逻辑走哪条代码路径时，把配置里的 `DiagnosticMode` 打开。它会给白名单内的
@@ -297,6 +321,10 @@ python tools/safe-hooks.py --types pp pl pn Monster Hero --show-unsafe
 - `src/TbhCombatTracker/Patches.cs` 顶部的 using 别名和方法名常量
 - `Localize.cs` / `SkillTracker.cs` / `Diagnostics.cs` 里零星几个字段名
 
+> **「方法名还在」不等于「含义没变」。** 1.2.2 里 `ActiveSkill.bilm` 就从 `Unit` 变成了 `int`，
+> 名字被复用给了别的字段。每次更新都要核对**类型和签名**，不能只看名字在不在。
+> 挂载日志会连参数类型一起打（`已挂载 pp.gvz(Single, Unit)`），错位一眼可见。
+
 注意游戏更新后 BepInEx 的 `interop\` 缓存也要清掉重新生成，否则拿到的还是旧签名。
 （启动一次游戏就会自动重建。）
 
@@ -328,7 +356,7 @@ LICENSE
 发布前自查：
 
 1. 在**干净的游戏目录**上按 `安装说明.md` 从零走一遍
-2. 写清楚测试过的游戏版本（当前 1.2.0）和 BepInEx 构建号（当前 be.785）
+2. 写清楚测试过的游戏版本（当前 1.2.2）和 BepInEx 构建号（当前 be.785）
 3. **不要**把 `build/dump/` 的符号 dump（52MB，游戏反编译产物）或
    `build/downloads/` 的 BepInEx 安装包一起发出去——`.gitignore` 已经挡住了，
    但手动打包时容易误带

@@ -1,6 +1,7 @@
 # Task Bar Hero 的反作弊：实际做了什么
 
-> 针对游戏 **1.01.05** 的分析。目的是判断一个**只读**的伤害统计 Mod 会不会让玩家被误判。
+> 针对游戏 **1.01.05** 的分析，已在 **1.2.0 / 1.2.2** 上重新验证（见第 7 节）。
+> 目的是判断一个**只读**的伤害统计 Mod 会不会让玩家被误判。
 > 方法：`tools/xref-scan.py` 对 `GameAssembly.dll` 做调用点扫描 + 字符串表检索 + 带 BepInEx 实跑对照。
 
 ## TL;DR
@@ -113,3 +114,57 @@ Save_Tampered=24                                存档被篡改
   这个残余可能性很低。
 - **根本无法知道**：服务端拿到遥测后做什么。客户端没有封禁逻辑，但开发者事后人工处理是另一回事。
   本 Mod 不产生任何遥测，所以这一层风险不适用——**前提是严格守住第 5 节的红线**。
+
+## 7. 在 1.2.2 上的复核
+
+游戏从 1.01.05 连更到 1.2.2，混淆名全变了（ACTk 这个第三方库也被一起混淆），
+所以整套检查重跑了一遍。**结论没有变化。**
+
+| 检查项 | 1.01.05 | 1.2.2 |
+|---|---|---|
+| `SpeedHackDetector.StartDetection(Action)` | 3 处，来自 `or` | 4 处，来自 `ox`（同一个类改了名）|
+| `ObscuredCheatingDetector` / `TimeCheatingDetector` | 运行中 | 运行中 |
+| `InjectionDetector` 的启动 API | 0 处 | **0 处**（详见下）|
+| `WallHackDetector` 的启动 API | 0 处 | 0 处 |
+| 字符串表里的加载器 / 作弊工具黑名单 | 无 | 无（19.5 万条字面量，命中的 12 条全是 ACTk 自己的类名和路径）|
+
+游戏自研的反作弊入口现在叫 `ox`，源文件仍是 `Assets\02_Script\02.Manager\AnomalyDetector.cs`，
+命名空间 `TaskbarHero_client.Cheat`。
+
+### `InjectionDetector` 的调用点从 0 变成了 3——但它仍然是死代码
+
+这一条值得单独说，因为数字变了容易误判。逐个方法查的结果：
+
+```
+InjectionDetector.zkn(Action<string>)   = StartDetection(callback)   0 处  ★ 死代码
+InjectionDetector.zkl()                 = StartDetection()           0 处  ★ 死代码
+InjectionDetector.zkm() / zko() / zkp()  = Stop / Dispose            0 处  ★ 死代码
+InjectionDetector.zkk()                 = 设置访问器（实例方法）      3 处
+```
+
+那 3 处全部来自 `dux`——一个 `internal class dux : MonoBehaviour`，它对**每个**检测器
+（Injection / WallHack / SpeedHack / ObscuredCheating）都各调一次同样的设置访问器。
+这是 ACTk 自带的示例/设置组件（1.01.05 时叫 `dtr`），随资源包打进来的，不是游戏逻辑。
+
+**没有任何东西调用 `StartDetection`，检测器就不会运行。**
+
+### 那次"治愈不回血"的事故会触发反作弊吗
+
+不会。实测和机理两方面都指向同一个结论。
+
+**实测**：出事那次会话的两份日志——`BepInEx\LogOutput.log` 和 20477 行的
+`Player-prev.log`——反作弊相关关键词命中数都是 **0**。游戏里检测触发会弹
+`EPopupType.DetectAntiCheat` 弹窗，玩家也没看到。
+
+**机理**：那个 bug 的效果是让 `pp.hbs`（生命恢复总入口）**不执行**，属于"少做了一件事"。
+三个在跑的检测器分别盯的是：
+
+- `ObscuredCheatingDetector` —— `Obscured*` 字段的密文和明文影子对不上，即**有人绕过 setter 改了内存**。
+  跳过一次方法调用不产生任何写入，自然也不会产生这种不一致。
+- `SpeedHackDetector` / `TimeCheatingDetector` —— 时间被加速或系统时钟被改。完全无关。
+
+而且方向也不对：**少回血对玩家是纯粹的劣势**。反作弊找的是异常获利，不是异常吃亏。
+
+> 一个诚实的补充：异常从 Harmony 的 Prefix 漏出去，确实会让游戏状态在**逻辑上**不一致
+> （"该回的血没回"就是）。但逻辑不一致和检测器要找的**内存篡改特征**是两回事。
+> 这不构成反作弊风险，却是必须修的 bug——修法见 `tools/check-guards.py`。
