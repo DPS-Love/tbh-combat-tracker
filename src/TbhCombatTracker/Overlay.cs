@@ -44,7 +44,13 @@ namespace TbhCombatTracker
 
         public static void Draw()
         {
-            if (!Visible || _disabled) return;
+            if (_disabled) return;
+            if (!Visible)
+            {
+                // 面板收起时，严重的更新警告也得让人看见
+                UpdateBanner.DrawStandalone();
+                return;
+            }
 
             var oldMatrix = GUI.matrix;
             try
@@ -59,6 +65,13 @@ namespace TbhCombatTracker
                 var n = Mathf.Max(1, RowCount());
                 _rect.width = Pad * 2f + n * CardW + (n - 1) * CardGap;
                 _rect.height = HeaderH + NameH + BlockH + PctBarH + PctTextH + DetailH + Pad * 2f;
+
+                // 更新横幅要放得下文字和三个按钮
+                if (UpdateBanner.Visible)
+                {
+                    _rect.width = Mathf.Max(_rect.width, 440f);
+                    _rect.height += UpdateBanner.Height;
+                }
 
                 _rect = GUI.Window(WindowId, _rect, (GUI.WindowFunction)DrawWindow, "TBH Combat Tracker");
                 DetailWindow.Draw();
@@ -158,6 +171,12 @@ namespace TbhCombatTracker
             var duration = enc.DurationSeconds;
 
             var top = Pad + 6f;
+
+            if (UpdateBanner.Visible)
+            {
+                UpdateBanner.Draw(new Rect(Pad, top, _rect.width - Pad * 2f, UpdateBanner.Height - 6f));
+                top += UpdateBanner.Height;
+            }
 
             // ---- 头部：关卡/战斗标题 + 时长 + 总量 + 团队每秒 + 按钮 ----
             var headRect = new Rect(Pad, top, _rect.width - Pad * 2f, HeaderH);

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-using GLoc = global::nz;
+using GLoc = global::oa;
 
 namespace TbhCombatTracker
 {
@@ -67,11 +67,11 @@ namespace TbhCombatTracker
         {
             string first = null, second = null;
 
-            try { first = GLoc.giz(key); } catch { /* 表不存在会抛 */ }
-            try { second = GLoc.gix(key); } catch { }
+            try { first = GLoc.gjf(key); } catch { /* 表不存在会抛 */ }
+            try { second = GLoc.gjd(key); } catch { }
 
             if (Mod.Config.LocalizationDebug.Value)
-                Mod.Log.Msg($"[i18n] '{key}'  giz='{first ?? "null"}'  gix='{second ?? "null"}'");
+                Mod.Log.Msg($"[i18n] '{key}'  gjf='{first ?? "null"}'  gjd='{second ?? "null"}'");
 
             if (!LooksUnresolved(key, first)) return first;
             if (!LooksUnresolved(key, second)) return second;

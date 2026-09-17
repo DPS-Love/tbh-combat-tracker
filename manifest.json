@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "latest": {
+    "version": "0.2.2",
+    "gameVersion": "1.2.2",
+    "url": "https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/v0.2.2",
+    "download": "https://github.com/DPS-Love/tbh-combat-tracker/releases/download/v0.2.2/TbhCombatTracker-v0.2.2.zip",
+    "sha256": "bc31920871abf3944bd4342eee961ee02e52711380a5eb52c751583d0136197e",
+    "critical": true,
+    "notes": {
+      "zh": "修复：补丁异常导致游戏内所有生命恢复失效（游戏 1.2.2）",
+      "en": "Fix: all HP regeneration stopped working on game 1.2.2"
+    }
+  },
+  "broken": [
+    {
+      "modMax": "0.2.1",
+      "gameMin": "1.2.2",
+      "reason": {
+        "zh": "在游戏 1.2.2 及之后的版本上，本版本会让所有生命恢复失效。请立即更新。",
+        "en": "On game 1.2.2 and later this version breaks all HP regeneration. Update immediately."
+      }
+    }
+  ]
+}

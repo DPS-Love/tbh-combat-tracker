@@ -14,10 +14,10 @@ using GUnit = TaskbarHero.Unit;
 using GHero = TaskbarHero.Hero;
 using GMonster = TaskbarHero.Monster;
 using GDamageInfo = TaskbarHero.DamageInfo;
-using GUnitHealth = global::pp;      // UnitHealth
-using GMonsterHealth = global::pn;   // MonsterHealth
-using GHeroHealth = global::pl;      // HeroHealth
-using GWindowNative = global::ot;    // Win32 窗口样式控制（点击穿透开关）
+using GUnitHealth = global::pq;      // UnitHealth
+using GMonsterHealth = global::po;   // MonsterHealth
+using GHeroHealth = global::pm;      // HeroHealth
+using GWindowNative = global::ou;    // Win32 窗口样式控制（点击穿透开关）
 using GPriestHeal = TaskbarHero.Combat.PriestHeal;
 using GPriestSanctuary = TaskbarHero.Combat.PriestSanctuary;
 using GActiveSkill = TaskbarHero.Combat.ActiveSkill;
@@ -37,7 +37,7 @@ namespace TbhCombatTracker
         // float 恒为 -0.875，第一参是单位自己。签名看着像伤害，其实完全不是。
         //
         // 1.2.0 里 ChangeHp 叫 gvz —— (float, Unit) 这个签名在 pp 上唯一，直接就能认出来。
-        private const string HpDeltaMethod = "gvz";
+        private const string HpDeltaMethod = "gwf";
 
         // 分类 hook 用 gun 而不是 eha，原因是 IL2CPP 的全局方法体去重：
         // Hero.eha 和 Monster.eha 编译结果完全相同，被合并到同一段机器码 (0xCABFD0)。
@@ -50,40 +50,40 @@ namespace TbhCombatTracker
         //   Monster.gun —— 怪物承伤 = 我方输出的分类来源
         //   Hero.gun    —— 英雄承伤 = 承伤面板的分类来源
         //   Unit.gun    —— 基类，另外兼作"战斗回复"的判定括号
-        private const string TakeDamageMethod = "gun";
+        private const string TakeDamageMethod = "gut";
 
         // ot.gpb(bool) —— 每帧由 WindowManager.Update() 调用，开关窗口的 WS_EX_TRANSPARENT。
         // 交叉引用挑出来的：ot 有六个 (bool) 方法，四个零调用点（死代码），gpi 有五个
         // 调用点（另一个开关），只有 gpb 恰好被 WindowManager.Update() 调用一次。
         //   python tools/xref-scan.py --targets ot.gpb ot.gpi ot.cso ot.jdx ot.hlg ot.orq
-        private const string ClickThroughMethod = "gpb";
+        private const string ClickThroughMethod = "gph";
 
-        // PriestHeal.niw() —— 牧师主动治疗的执行入口，机器码全局唯一。
+        // PriestHeal.njp() —— 牧师主动治疗的执行入口，机器码全局唯一。
         // 治疗和伤害共用 UnitHealth.ChangeHp，但治疗那条路径的 Unit source 恒为 null
         // （实测增量 1.5、source 恒为 null），在血量入口无法归因。所以改从技能侧夹上下文：
         // niu() 前后记下 / 清除"当前治疗者"，中间落到 ChangeHp 的正数增量就归给它。
         // 和伤害那套 Monster.gun → pp.gvz 的配对是同一个套路。
-        private const string PriestHealMethod = "niw";
+        private const string PriestHealMethod = "njp";
 
         // 恢复来源的上游括号。交叉引用确认这几处都会走到 pp.hbs：
         //   Unit.gun(DamageInfo, bool)  2 处 —— 伤害结算内的生命偷取 / 每次攻击回复
         //   Unit.gvg(Unit)              1 处 —— 击杀时的处决回复
-        //   PriestHeal.niw()                —— 牧师主动治疗（经 pp.hbr 转一手）
+        //   PriestHeal.njp()                —— 牧师主动治疗（经 pp.hbr 转一手）
         // 三个方法的机器码都全局唯一（python tools/safe-hooks.py 确认）。
         //
         // hbs 是这么从五个同签名候选里挑出来的：另外四个 (float,bool,bool) 全是零调用点的
         // 死代码，只有 hbs 有 16 个调用点，其中 2 处正好来自 Unit.gun —— 和 1.01.05 时
         // gxq 的调用点分布完全对得上。 python tools/xref-scan.py --targets pp.hbs
-        private const string UnitTakeDamageMethod = "gun";
-        private const string UnitOnKilledMethod = "gvg";
-        private const string HealFunnelMethod = "hbs";   // pp.hbs —— 所有恢复的总入口
+        private const string UnitTakeDamageMethod = "gut";
+        private const string UnitOnKilledMethod = "gvm";
+        private const string HealFunnelMethod = "hby";   // pp.hbs —— 所有恢复的总入口
 
         // ActiveSkill.AttackDamage() —— 每个技能生成自己 DamageInfo 的工厂，方法名未混淆。
         // 它是**命中时才求值的惰性工厂**（基类只有 1 个直接调用点，其余全是虚分发/委托），
         // 所以弹道和 AOE 的延迟伤害也会走到，是做技能级归因最准的位置。
         // 53 个技能类里只有 HunterExplosiveBolt 覆写了它，所以挂基类 + 它就够全覆盖。
         private const string SkillDamageFactoryMethod = "AttackDamage";
-        private const string SkillExecuteMethod = "niw";
+        private const string SkillExecuteMethod = "njp";
 
         public static void ApplyAll(Harmony harmony)
         {
@@ -365,7 +365,7 @@ namespace TbhCombatTracker
         {
             try
             {
-                var hero = health?.bdvt;
+                var hero = health?.bdwm;
                 if (hero != null) return hero.GetInstanceID();
             }
             catch { /* 退回组件 id 总比崩了强 */ }
@@ -390,19 +390,19 @@ namespace TbhCombatTracker
         }
 
         /// <summary>
-        /// PriestHeal.niw() —— 牧师「治愈」。
+        /// PriestHeal.njp() —— 牧师「治愈」。
         ///
-        /// 施法者取 <c>ActiveSkill.bilo</c>（技能的拥有者），**不能**取 <c>PriestHeal.bidx</c>。
+        /// 施法者取 <c>ActiveSkill.bimr</c>（技能的拥有者），**不能**取 <c>PriestHeal.bifa</c>。
         /// 后者是这次治疗的**目标**，取了它就会把治疗量记到被治疗的友军头上——
         /// 面板上于是出现「友军自己治疗了自己」，牧师反而没有数据。
         ///
-        /// 怎么确定 bidx 是目标而不是施法者：施法者在基类里已经有两份了
-        /// （<c>ActiveSkill.bilo</c> 0x38 是 Unit，<c>HeroActiveSkill.bicc</c> 0x78 是 Hero），
+        /// 怎么确定 bifa 是目标而不是施法者：施法者在基类里已经有两份了
+        /// （<c>ActiveSkill.bimr</c> 0x38 是 Unit，<c>HeroActiveSkill.bidf</c> 0x78 是 Hero），
         /// 子类没有理由再存第三份。而且 <c>PriestSanctuary</c> 在同一个偏移 0x80 上存的是
-        /// 治疗场对象 <c>bidz</c>——两个技能都是在这个位置存「这次作用在什么东西上」。
+        /// 治疗场对象 <c>bifc</c>——两个技能都是在这个位置存「这次作用在什么东西上」。
         ///
         /// 这个错误从 1.01.05 就在（当时字段叫 bhfz），不是 1.2.0 改名引入的。
-        /// 圣域那条路径一直取的是 bilo，所以只有「治愈」错，「圣域」是对的。
+        /// 圣域那条路径一直取的是 bimr，所以只有「治愈」错，「圣域」是对的。
         /// </summary>
         private static void PriestHeal_Pre(GPriestHeal __instance,
                                            out (HealKind, SourceIdentity, bool) __state)
@@ -410,7 +410,7 @@ namespace TbhCombatTracker
             __state = default;
             try
             {
-                var hero = __instance?.bilo?.TryCast<GHero>();
+                var hero = __instance?.bimr?.TryCast<GHero>();
                 if (hero != null)
                 {
                     // 治疗延迟落地，括号跨不过去，所以额外记住施法者
@@ -426,8 +426,8 @@ namespace TbhCombatTracker
                 {
                     // 顺带把目标打出来：施法者和目标应当是**两个不同的名字**，
                     // 一样就说明又取错字段了。
-                    var target = SafeName(__instance?.bidx);
-                    Mod.Log.Msg($"[heal] PriestHeal.niw() 施法者={SafeName(hero)} 目标={target}");
+                    var target = SafeName(__instance?.bifa);
+                    Mod.Log.Msg($"[heal] PriestHeal.njp() 施法者={SafeName(hero)} 目标={target}");
                 }
             }
             catch (Exception e)
@@ -462,7 +462,7 @@ namespace TbhCombatTracker
             __state = default;
             try
             {
-                var hero = __instance?.bilo?.TryCast<GHero>();
+                var hero = __instance?.bimr?.TryCast<GHero>();
                 if (hero != null)
                 {
                     Healing.RememberCaster(Naming.For(hero));
@@ -474,7 +474,7 @@ namespace TbhCombatTracker
                 }
 
                 if (Mod.Config.HealingDebug.Value)
-                    Mod.Log.Msg($"[heal] PriestSanctuary.niw() 施法者={SafeName(hero)}");
+                    Mod.Log.Msg($"[heal] PriestSanctuary.njp() 施法者={SafeName(hero)}");
             }
             catch (Exception e)
             {
@@ -652,7 +652,7 @@ namespace TbhCombatTracker
                 if (Cache.TryGetValue(id, out var cached)) return cached;
             }
 
-            // pl(HeroHealth) 持有它服务的那个 Hero（字段 bdvt），顺着它去解析职业，
+            // pm(HeroHealth) 持有它服务的那个 Hero（字段 bdwm），顺着它去解析职业，
             // 否则承伤面板只会显示 Hero_401 这种 GameObject 名。
             // 注意复用 For(hero)：它按**英雄**的实例 id 缓存，所以同一个英雄在
             // 输出面板和承伤面板拿到的是同一份身份，不会被重名后缀判成两个人。
@@ -702,7 +702,7 @@ namespace TbhCombatTracker
         }
 
         /// <summary>
-        /// 从 Hero.cache(wg).bghy(HeroInfoData).ClassType 读职业。
+        /// 从 Hero.cache(wg).bgiq(HeroInfoData).ClassType 读职业。
         /// HeroInfoData 的字段没被混淆（HeroKey / ClassType / HeroNameKey / IconPath），
         /// 是权威来源——不要去猜 GameObject 名里的数字。
         /// </summary>
@@ -710,7 +710,7 @@ namespace TbhCombatTracker
         {
             try
             {
-                var info = hero.cache?.bghy;
+                var info = hero.cache?.bgiq;
                 if (info == null) return 0;
 
                 var classType = (int)info.ClassType;
@@ -771,7 +771,7 @@ namespace TbhCombatTracker
         {
             try
             {
-                return health.TryCast<GHeroHealth>()?.bdvt;
+                return health.TryCast<GHeroHealth>()?.bdwm;
             }
             catch
             {

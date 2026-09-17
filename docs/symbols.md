@@ -1,11 +1,13 @@
 # Task Bar Hero — 逆向符号表
 
 > 来源：Il2CppDumper v6.7.46 对 `GameAssembly.dll` + `global-metadata.dat` 的 dump
-> 游戏版本：**1.2.2**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
+> 游戏版本：**1.2.4**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
 >
 > 1.01.05 → 1.2.0 混淆名**全部变了**，重定位过程见第 11 节；
-> 1.2.0 → 1.2.2 只有**字段名整体平移**（方法名没动），见第 12 节。
-> 下文正文里的名字是 1.2.2 的。
+> 1.2.0 → 1.2.2 只有**字段名整体平移**，见第 12 节；
+> 1.2.2 → 1.2.4 类型名和方法名又都动了，见第 13 节。
+> **正文里的名字是 1.2.2 的**，第 13 节的对照表才是当前值——正文不再逐版改写，
+> 结构（谁是转发器、谁覆写了谁、偏移量）才是这份文档的价值。
 
 ## 0. 混淆规律（重要）
 
@@ -518,3 +520,42 @@ pl.bdvr 改名 → HealFunnel_Pre 里一行调试日志读它 → MissingMethodE
 并挂在构建流程前面（见 `TbhCombatTracker.csproj` 的 `CheckPatchGuards`），不合格直接编译失败。
 要求「第一条就是 try」而不是「方法体里有 catch」，是因为后者会放过只包了一半的写法——
 而这次出事的恰恰就是没被包住的那半边。
+
+## 13. 1.2.2 → 1.2.4 重定位记录
+
+2026-09-16 的更新。类型名和方法名都动了，规模介于 1.2.0 和 1.2.2 之间；
+同样的判据（状态机名 → 签名 → RVA 关系 → 调用点）二十分钟走完。
+
+| 1.2.2 | 1.2.4 | 判据 |
+|---|---|---|
+| `pp` UnitHealth | `pq` | `<HealthRegenAsync>d__20` 状态机名没变 |
+| `pl` / `pn` | `pm` / `po` | `: pq` + `private Hero bdwm` / `private Monster bdxc`；只有 `pm` 覆写 ChangeHp |
+| `bgg` IDamageable | `bgm` | `Unit : MonoBehaviour, bgm` |
+| `nz` 本地化 | `oa` | 五个 `[Extension] static string` |
+| `ot` 窗口控制 | `ou` | ⚠ **`ot` 这个名字还在，但现在是 P/Invoke 集合类**（原 `os`）——名字复用 |
+| `bgn` 治疗场 | `bgt` | `PriestSanctuary` 的 0x80 字段类型 |
+| `gvz` ChangeHp | `gwf` | `(float, Unit)` 唯一 |
+| `gvu` 血条初始化 | `gwa` | `(Unit, Vector3, float)` 唯一 |
+| `gun` TakeDamage | `gut` | Hero `0xCAEE60` / Monster `0xCC9D60` 互异 |
+| `eha` 转发器 | `ehg` | Hero/Monster 共用 `0xCABEA0`，仍不可挂 |
+| `gvg` 击杀 | `gvm` | `bool (Unit)`，调恢复入口 1 次 |
+| `hbs` 恢复入口 | `hby` | ⚠ **`hbs` 这个名字还在，但现在是个 `(float, bool)` 两参方法**——名字复用。四个 `(float,bool,bool)` 候选里只有 `hby` 有调用点：2 处来自 `Unit.gut`、1 处来自 `Unit.gvm`，和历次完全一致 |
+| `gpb` 点击穿透 | `gph` | `ou` 四个 `(bool)` 里唯一被 `WindowManager.Update()` 调用的；`gpo` 是另一个开关（5 处） |
+| `niw` 技能执行 | `njp` | PriestHeal / Sanctuary 各自覆写、RVA 互异 |
+| `giz` / `gix` | `gjf` / `gjd` | 按 dump 顺序对应 `gft/gfu/gfv/gfw/gfx` |
+| `gti` / `gtj` | `gto` / `gtp` | Unit 的 `string` 覆写对（代码里没用，只在 sigcheck） |
+| `pl.bdvt` | `pm.bdwm` | 0x58 |
+| `wg.bghy` | `wg.bgiq` | 0x30（`wg` 本身没改名）|
+| `wl.bgjn` | `wl.bgkf` | 0x10（`wl` 本身没改名）|
+| `ActiveSkill.bilo` | `.bimr` | 0x38 |
+| `HeroActiveSkill.bicc` | `.bidf` | 0x78 |
+| `PriestHeal.bidx` | `.bifa` | 0x80（治疗目标）|
+| `PriestSanctuary.bidz` | `.bifc` | 0x80 |
+
+两处**名字复用**（`ot`、`hbs`）值得画重点：它们都能让"只看名字在不在"的检查通过，
+而含义已经完全不同。这次它们只是没挂上（签名不符，Harmony 找不到），没造成危害——
+但如果碰巧签名也一样，就会挂到错的方法上。挂载日志里带的参数类型就是为这个准备的。
+
+**没变的**：`Hero.cache` / `ActiveSkill.skillCache` / `AttackDamage` / `UnitHealthController` /
+`StageManager.stageState` / `b_StageStart` / `UI_Stage.text_StageName` /
+`HeroInfoData.*` / `SkillInfoData.*`——全是没被混淆的名字。它们是每次重定位的起点。

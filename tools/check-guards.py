@@ -106,9 +106,11 @@ def main():
     ap.add_argument('--list', action='store_true', help='把合格的也列出来')
     a = ap.parse_args()
 
+    # 跟着控制台的编码走（PowerShell/MSBuild 下通常是 GBK），只在编不出来时替换成 ?，
+    # 不要强制 UTF-8——那会让 dotnet build 的输出变成乱码
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding='utf-8')
+            stream.reconfigure(errors='replace')
         except AttributeError:
             pass
 

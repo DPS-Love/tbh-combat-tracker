@@ -1,78 +1,52 @@
 # TBH Combat Tracker
 
-给 **Task Bar Hero**（Unity 6 / IL2CPP）做的伤害统计 Mod：按英雄拆分输出、DPS、暴击率、
-元素与伤害类型占比，IMGUI 悬浮面板实时显示，可导出 CSV。
+给 **TBH: Task Bar Hero** 用的战斗统计面板。横向悬浮窗，按英雄拆分输出 / 承伤 / 治疗，
+点开任一角色可看技能与伤害类型的饼图明细，按关卡自动分段，可导出 CSV。
+面板文本跟随游戏语言。
 
-只读统计，不修改任何游戏数值。
+**只读统计，不修改任何游戏数值。**
 
----
-
-> **只想装来用？** 看 [docs/INSTALL.md](docs/INSTALL.md)，本 README 是给开发者的。
-> 发布包从 [Releases](../../releases) 下载。
-
-在**游戏 1.01.05** + **BepInEx 6.0.0-be.785** 上完整实测过：伤害/承伤统计、职业识别、
-关卡自动分段、面板交互。反作弊风险评估见 [docs/anticheat.md](docs/anticheat.md)。
-
-> **游戏 1.2.2**：1.01.05 → 1.2.0 混淆名全变（[symbols.md 第 11 节](docs/symbols.md)），
-> 1.2.0 → 1.2.2 字段名整体平移（[第 12 节](docs/symbols.md)）。均已重新对齐，
-> `sigcheck` 全部命中，调用点和机器码唯一性都复核过。
+当前适配：游戏 **1.2.4**，BepInEx **6.0.0-be.785**。
 
 ---
 
-## 开发环境
+## 下载
 
-### 1. .NET SDK 8
+从 [Releases](https://github.com/DPS-Love/tbh-combat-tracker/releases/latest) 下载最新的
+`TbhCombatTracker-vX.Y.Z.zip`。
 
-装完 `dotnet --list-sdks` 有输出即可。不想动系统 PATH 的话可以用
-[dotnet-install 脚本](https://dot.net/v1/dotnet-install.ps1) 装到用户目录。
+## 安装
 
-### 2. BepInEx 6 IL2CPP
+### 1. 装 BepInEx 6 IL2CPP
 
-用 bleeding-edge 构建 **6.0.0-be.785**（2026-06-28）验证过。安装 / 换构建 / 卸载：
-
-```powershell
-pwsh tools/install-bepinex.ps1                    # 默认 be.785，本地没有就自动下载
-pwsh tools/install-bepinex.ps1 -Build 790         # 换个构建号
-pwsh tools/install-bepinex.ps1 -Uninstall         # 卸载（保留 plugins\ 和 config\）
-```
-
-> **为什么不用带 tag 的正式版：** BepInEx 6 至今没发过正式版，GitHub Release 上最新的
-> IL2CPP 包是 `6.0.0-pre.2`（2024-08），比 Unity 6 正式发布还早，啃不动本游戏的 metadata v31。
-> IL2CPP 的活跃开发都在 `builds.bepinex.dev` 的 BE 构建里。
-
-> **注意：** BepInEx IL2CPP 走 `winhttp.dll` 代理注入。Steam"验证游戏文件完整性"
-> 会把它判为多余文件删掉，删了重跑脚本即可。
-
-> 公司网络下载失败的话挂 Clash 代理（脚本默认已带 `-Proxy http://127.0.0.1:7897`）。
-> 失败就手动重试一次，别循环重试。
-
-### 3. 启动一次游戏
-
-BepInEx 首次运行会用 Cpp2IL 反编译 `GameAssembly.dll`，再用 Il2CppInterop
-生成可以被 C# 引用的代理程序集，耗时 1–3 分钟。产物在：
+到 <https://builds.bepinex.dev/projects/bepinex_be> 下载
+**`BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.785.zip`**，解压到游戏根目录（和 `TaskBarHero.exe` 同一层）：
 
 ```
-TaskbarHero\BepInEx\interop\Assembly-CSharp.dll
+TaskbarHero\
+├── TaskBarHero.exe
+├── winhttp.dll          ← BepInEx 解压出来的
+├── doorstop_config.ini
+├── dotnet\
+└── BepInEx\
 ```
 
-这个文件出现了，才能编译本项目。日志看 `TaskbarHero\BepInEx\LogOutput.log`。
+> 要用构建站上的 BE 版本，不要用 GitHub Release 上的 `6.0.0-pre.2`——后者比 Unity 6 还早，认不出这个游戏。
 
----
+### 2. 先启动一次游戏
 
-## 构建
+BepInEx 首次运行要生成中间程序集，**需要 1–3 分钟**，期间窗口可能像卡住，别关。
+出现这个文件就好了：`TaskbarHero\BepInEx\interop\Assembly-CSharp.dll`
 
-```powershell
-dotnet build src/TbhCombatTracker/TbhCombatTracker.csproj -c Release
+### 3. 装本 Mod
+
+把发布包里的 `BepInEx` 文件夹解压覆盖到游戏根目录，最终是：
+
+```
+TaskbarHero\BepInEx\plugins\TbhCombatTracker.dll
 ```
 
-构建成功会自动把 `TbhCombatTracker.dll` 部署到 `<游戏目录>\BepInEx\plugins\`。
-
-游戏路径写死在 [Directory.Build.props](Directory.Build.props) 的 `GameDir`，
-不在 D 盘就改那里，或者命令行覆盖：
-
-```powershell
-dotnet build src/TbhCombatTracker/TbhCombatTracker.csproj -p:GameDir="E:\Steam\steamapps\common\TaskbarHero"
-```
+启动游戏即可。
 
 ---
 
@@ -81,345 +55,79 @@ dotnet build src/TbhCombatTracker/TbhCombatTracker.csproj -p:GameDir="E:\Steam\s
 | 按键 | 作用 |
 |---|---|
 | `F9` | 显示 / 隐藏面板 |
-| `F10` | 重置当前战斗统计 |
-| `F11` | 导出 CSV 到 `<游戏目录>\BepInEx\TbhCombatTracker\` |
+| `F10` | 重置当前统计 |
+| `F11` | 导出 CSV 到 `BepInEx\TbhCombatTracker\` |
 
-面板标题栏可拖动。默认 8 秒没有任何伤害就自动开启新一场统计。
+- 标题栏按钮在 **输出 / 承伤 / 治疗** 三个视图间切换；整个面板可拖动
+- **点击角色卡片**弹出明细：普通攻击与各技能占比、伤害类型与元素占比
+- 默认按关卡自动分段，标题显示当前关卡名
 
-标题栏的按钮在**输出 / 承伤**两个视图间切换。整个窗口都能拖动。
+游戏窗口平时是点击穿透的。光标移到面板上时会自动解除穿透让你操作，移开即恢复，不影响正常用电脑。
 
-> 治疗统计做过但撤掉了：游戏的回血和伤害共用 `UnitHealth.ChangeHp`，但回血这条路径的
-> `Unit source` 恒为 null（实测增量 1.5、source 为 null），归因不到治疗者，全部只能落到
-> "自动回复"一档，没有统计价值。要做的话得从技能侧另找 hook 点。
+## 配置
 
-面板形制参考 FFXIV ACT 的 [Horizoverlay](https://github.com/bsides/horizoverlay)：每个来源一张
-140px 窄卡片横向并排，主体是 `skew(-30deg)` 平行四边形，按**职业立绘主色**配色，底部一条 2px 占比条，
-再带一行暴击率和单次最大伤害。职业不是猜的——运行时从 `HeroInfoData.ClassType` 读，
-见 [docs/symbols.md](docs/symbols.md) 第 8 节。
-
-配置在 `<游戏目录>\BepInEx\config\dpslove.tbh.combattracker.cfg`：
+`BepInEx\config\dpslove.tbh.combattracker.cfg`，**游戏启动一次后才会生成**，改完重启游戏。
 
 | 配置项 | 默认 | 说明 |
 |---|---|---|
-| `SegmentByStage` | true | 按关卡自动分段（关卡名变化 / `b_StageStart`）。关掉才用下面的空闲阈值 |
-| `IdleResetSeconds` | 8 | 空闲多少秒切一段，仅在 `SegmentByStage=false` 时生效，0 = 从不自动切 |
-| `TrackIncoming` | true | 是否同时统计英雄承受的伤害 |
-| `ProbeMode` | false | 调试：把攻击者的各种名字字段打到日志，用来确定英雄显示名怎么取 |
+| `SegmentByStage` | true | 按关卡自动分段；关掉则按 `IdleResetSeconds` 空闲秒数分段 |
+| `TrackIncoming` / `TrackHealing` / `TrackSkills` | true | 承伤 / 治疗 / 技能拆分 |
 | `UiScale` | 1.0 | 面板缩放 |
-| `SkewDegrees` | -30 | 卡片色块斜切角度（Horizoverlay 用 -30），设 0 就是普通矩形 |
-| `FixClickThrough` | true | 光标移到面板上时解除窗口点击穿透，让按钮可点、窗口可拖 |
-| `DiagnosticMode` | false | 一次性诊断：定位某段逻辑走哪条代码路径，见下方"诊断模式" |
+| `SkewDegrees` | -30 | 卡片斜切角度，`0` 为普通矩形 |
+| `FixClickThrough` | true | 关掉的话面板只能看，点击会穿透过去 |
+| `CheckUpdates` | true | 启动时检查更新（见下） |
+| `AutoInstall` | false | 发现新版本后自动下载替换，重启生效 |
 
-配置文件里还有独立的 `[Colors]` 段，六个职业的卡片颜色可以直接改十六进制值，
-不用重新编译（支持 `#RGB` / `#RRGGBB` / `#RRGGBBAA`）：
+`[Colors]` 段是六个职业的卡片颜色，直接改十六进制值即可（`#RGB` / `#RRGGBB` / `#RRGGBBAA`）。
 
-| 职业 | 默认色 | 取自 |
-|---|---|---|
-| 骑士 Knight | `#C0392B` | 猩红披风与盾徽 |
-| 游侠 Ranger | `#5FB04A` | 森林绿劲装 |
-| 法师 Sorcerer | `#8E5BD0` | 紫罗兰法杖 |
-| 牧师 Priest | `#F0D98C` | 圣白法袍配金饰 |
-| 猎人 Hunter | `#2AA8A0` | 青碧斗篷 |
-| 杀手 Slayer | `#E07B39` | 赭褐皮甲双斧 |
-| 未知/怪物/环境 | `#9E9E9E` | — |
+## 更新提示
 
-> 没有沿用 Horizoverlay 的职能三色（坦克蓝/治疗绿/输出红）：这游戏只有六个固定职业，
-> 用形象色辨识度更高。
+启动时会读一次仓库里的 `manifest.json`（**只读取，不上传任何数据**）：
 
----
+- **有新版本** → 面板顶部横幅。点「下载页」自己下，或点「更新」由它下载、校验 SHA-256 并替换文件，重启游戏生效
+- **当前版本被标记为在你的游戏版本上会出问题** → 红色横幅说明原因。**不会自动做任何事**——
+  可以点「停用」让统计在本次游戏里停下（重启恢复），或更新，或什么都不做
+- **游戏更新了而 Mod 还没跟上** → 琥珀色提示，统计可能缺失，游戏本身不受影响
 
-## 工作原理
+不想联网就把 `CheckUpdates` 改成 `false`。自动更新后若新版本加载失败，把
+`BepInEx\plugins\TbhCombatTracker.dll.old` 改回 `TbhCombatTracker.dll` 即可回滚。
 
-```
-Monster.gun(DamageInfo, bool)          ← Prefix/Finalizer: 记下暴击/伤害类型/元素属性
-  └─ UnitHealth.gvz(float, Unit)       ← Postfix: 负数=最终伤害，第二参=攻击者
-```
+## 关于封号风险
 
-游戏的伤害结算分两步：`gun`（= `TakeDamage`）拿到带分类信息的 `DamageInfo`，
-内部算完暴击和抗性减免后，把**最终增量**交给 `gvz`（= `ChangeHp`）改血量——
-负数是伤害，正数是治疗，两者共用同一个入口。
+游戏用了 Anti-Cheat Toolkit，但只启动了加速、内存篡改、系统时间三个检测器，本 Mod 一个都不碰——
+不写内存、不改时间、不动存档；**注入检测器从未被启动**，也没有 Mod 加载器黑名单；检测触发后
+客户端也**没有封禁逻辑**。完整分析与证据见
+[反作弊说明](https://github.com/DPS-Love/tbh-combat-tracker/blob/main/docs/anticheat.md)。
 
-单独 hook 任何一个都不够：`gun` 只有减免前的 `OriginDamage`，`gvz` 只有一个裸 float。
-所以用 Prefix/Finalizer 把 `gun` 夹住，在中间的 `gvz` 里把两边的信息拼起来。
+尽管如此，服务端拿到遥测后做什么从客户端看不出来。建议先备份存档
+`%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero`，**用不用、风险自负**。
 
-攻击者归因靠 `gvz` 的第二个参数 `Unit source`，不用猜。
+## 卸载
 
-挂哪个类由覆写关系决定：怪物的 `pn` 没覆写 `gvz`，走基类 `pp.gvz`；英雄的 `pl` 覆写了，
-必须单独挂 `pl.gvz`。
+删掉 `BepInEx\plugins\TbhCombatTracker.dll`。要连 BepInEx 一起卸，删掉游戏根目录的
+`winhttp.dll`、`doorstop_config.ini`、`.doorstop_version`、`dotnet\`、`BepInEx\`，或在 Steam 里"验证游戏文件完整性"。
 
-> 这条链路是**运行时诊断实测**出来的，不是从签名推的。中间押错过 `(Unit, Vector3, float)`
-> 那个方法——签名看着完全像伤害，实际是血条初始化。教训见
-> [docs/symbols.md](docs/symbols.md) 第 2 节。
->
-> 上面这些三字母名字每次游戏更新都会变（1.01.05 时叫 `grd` / `gsi` / `ph` / `pj` / `pf`）。
-> 重新对齐的方法和完整新旧对照在 [docs/symbols.md](docs/symbols.md) 第 11 节。
+## 常见问题
 
-代码分工：
+**面板没出现** — 看 `BepInEx\LogOutput.log` 有没有 `Loading [TBH Combat Tracker]`；没有多半是 DLL 放错位置。按 `F9` 确认不是被隐藏了。
 
-| 文件 | 职责 |
-|---|---|
-| [Patches.cs](src/TbhCombatTracker/Patches.cs) | 所有和游戏类型耦合的代码。游戏更新后基本只需要改这一个文件 |
-| [DamageTracker.cs](src/TbhCombatTracker/DamageTracker.cs) | 聚合统计、战斗切分、CSV 导出 |
-| [Overlay.cs](src/TbhCombatTracker/Overlay.cs) | IMGUI 面板 |
-| [Plugin.cs](src/TbhCombatTracker/Plugin.cs) | BepInEx `BasePlugin` 入口 |
-| [Mod.cs](src/TbhCombatTracker/Mod.cs) | 加载器门面（日志 + 配置）。换加载器只需重写这个文件和 Plugin.cs |
-| [TrackerBehaviour.cs](src/TbhCombatTracker/TrackerBehaviour.cs) | 注入 IL2CPP 域的 MonoBehaviour，负责 `Update` / `OnGUI` |
+**按钮点不动 / 拖不动** — 确认配置里 `FixClickThrough = true`。
+
+**游戏更新后失效** — 正常现象：游戏代码用了混淆器，每次更新方法名都可能变。日志会写明哪个 hook 挂载失败，面板也会提示；等新版本即可，游戏本身不受影响。
+
+**Steam 验证文件后 BepInEx 没了** — Steam 会把 `winhttp.dll` 当多余文件删掉，重装 BepInEx 即可，插件和配置不受影响。
 
 ---
 
-## 签名验证
+## 开发
 
-编译通过 ≠ Harmony 能绑上。形参名、方法是否在派生类上声明、值类型被生成成 class 还是 struct，
-这些编译器都不检查，但 Harmony 全都依赖。所以有个专门的检查器：
-
-```powershell
-dotnet run --project tools/sigcheck/sigcheck.csproj
-```
-
-它直接读 `BepInEx\interop\Assembly-CSharp.dll`，打印我们 hook 的方法的真实签名。
-全部命中返回 0，有缺失返回 2。
-
-对着 be.785 的实测结果，三个原本的风险点都已确认（下表的名字是 1.2.0 的）：
-
-| 风险点 | 实测结果 |
-|---|---|
-| 形参名是否被重命名 | ✅ 保留：`gvz(Single a, Unit b)`、`gun(DamageInfo a, Boolean b)` |
-| 方法是否在预期类型上声明 | ✅ `pl.gvz` 是 `override`、`pp.gvz` 是 `virtual`，`DeclaredMethod` 都拿得到 |
-| `DamageInfo` 生成形态 | ✅ class（继承 `Il2CppSystem.ValueType`），字段一律变成属性，现有代码兼容 |
-
-还有两个**只靠静态分析发现不了**的坑，都是实跑才暴露的，见下面两节。
-
-### 被裁剪的 Unity API（IL2CPP 特有的坑）
-
-游戏是 IL2CPP 构建且自身不用 IMGUI，所以 Unity 的纯托管方法有一部分被裁剪掉了。
-Il2CppInterop 会尝试还原 IL（本游戏：`11210 successful, 1494 failed`），还原失败的会生成一个
-直接 `throw new NotSupportedException("Method unstripping failed")` 的桩——**编译期毫无提示，
-一调用就抛**。如果这发生在 `OnGUI` 里，就是每帧抛异常，游戏直接卡死。
-
-```powershell
-dotnet run --project tools/sigcheck/sigcheck.csproj -- --stripped UnityEngine.IMGUIModule GUILayout GUI
-```
-
-写任何新 UI 代码前先跑一遍。本构建的实测结果：
-
-| 类型 | 可用 / 失效 | 踩过的坑 |
-|---|---|---|
-| `GUILayout` | 217 / **1** | **`FlexibleSpace()` 失效** —— 曾导致启动卡死 |
-| `GUI` | 239 / 8 | `BeginScrollView` / `EndScrollView` / `Slider` / `Scroller` 失效 |
-| `GUILayoutUtility` | 70 / 0 | — |
-| `GUIStyle` | 205 / 0 | — |
-| `Mathf` | 81 / 3 | 只有 `Max`/`Min` 的数组重载失效 |
-| `Texture2D` | 176 / 1 | 只有 `GenerateAtlasImpl` 失效 |
-| `Input`（Legacy） | 85 / 2 | 只有 `compass` / `location` 失效 |
-| `Time`、`Object`、`Matrix4x4` | 全部可用 | — |
-
-[Overlay.cs](src/TbhCombatTracker/Overlay.cs) 里另外加了熔断：连续 3 帧绘制失败就永久关闭面板并记一条日志。
-UI 的 bug 不该有能力拖垮游戏。
-
-### IL2CPP 方法体去重（会把游戏搞崩的坑）
-
-IL2CPP 把**方法体完全相同**的函数合并成同一段机器码，而且是**全局**合并：本游戏里
-`0x6B1620`（一条 `ret`）被 **1872** 个方法共用，`0xCE8880`（一个有完整序言的真函数）
-被 **457** 个方法共用。
-
-对这种共享地址挂 Harmony detour 有两种死法，都踩过：
-
-- 同一地址挂**两次** → 其中一个的 trampoline 重新进入 detour → 无限递归栈溢出 → **启动闪退**
-- 挂**一次**但地址被无关方法共用 → 那些方法的 `this` 是各种类型，进 wrapper 一转型就
-  `NullReferenceException` → **每帧刷屏，游戏进不去**
-
-判据不是"代码是否简单"（`0xCE8880` 就是真函数），而是"这段机器码在全二进制里是否只属于一个方法"：
-
-```powershell
-python tools/safe-hooks.py                 # 列出可安全 hook 的方法
-python tools/safe-hooks.py --csharp        # 直接出 C# 白名单字面量
-python tools/safe-hooks.py --show-unsafe   # 看被排除的和它们的共用数
-```
-
-`Patches.TryPatch` 和 `Diagnostics.Apply` 都按原生函数指针做了去重守卫
-（[Il2CppUtil.cs](src/TbhCombatTracker/Il2CppUtil.cs)）。
-
-### 补丁方法漏出异常会把游戏玩坏（最严重的坑）
-
-**Harmony 的 Prefix 抛异常，原方法就不执行。** 一个只读的统计 Mod 因此可以把游戏功能整个搞没。
-
-这不是假想。游戏 1.2.2 更新后 `pl.bdvr` 字段改名，`HealFunnel_Pre` 里**一行调试日志**
-读它时抛 `MissingMethodException`。那个方法当时没有 try/catch，异常漏进 Prefix，
-而这个补丁挂在生命恢复的总入口 `pp.hbs` 上——于是游戏里所有回血失效，
-玩家看到的现象是「牧师的治愈不回血」，一次会话刷了 234 次异常。
-
-教训不是「别写错字段名」。游戏每次更新都会改混淆名，这类异常迟早还会出现。
-正确的目标是**出了异常也只影响统计，绝不影响游戏**：
-
-> **补丁方法是我们和游戏代码之间的边界，边界上一个异常都不许漏过去。**
-
-所以有了这道构建前的闸门：
-
-```powershell
-python tools/check-guards.py --list
-```
-
-它检查每个补丁方法的第一条语句是不是 `try`，不合格**直接编译失败**
-（csproj 里的 `CheckPatchGuards`）。判据是「第一条就是 try」而不是「方法体里有 catch」——
-后者会放过只包了一半的写法，而这次出事的恰恰就是没被包住的那半边。
-
-## 诊断模式
-
-搞不清某个逻辑走哪条代码路径时，把配置里的 `DiagnosticMode` 打开。它会给白名单内的
-血量控制器/Monster 方法挂钩，记录前几次调用和实参：
-
-```
-[diag] Monster.grd(DamageInfo, false)
-[diag] pj.gsi(-735.586, Unit("Hero_301(Clone)"))
-[diag] pj.gxq(1.5, false, false)
-[diag] pf.gsi(1.5, null)
-```
-
-伤害入口就是这么定位出来的——**别再靠签名猜**。这个模式是**一次性**的：启用后立刻把配置
-写回 `false`，万一挂载又把游戏搞崩，下次启动自动是关闭状态，不会陷在崩溃循环里。
-
-## 剩余待实测项
-
-1. **DOT / 陷阱伤害是否绕过 `grd` 直接调 `gsi`。** 若绕过，数值仍会被统计，
-   但暴击率和类型拆分会落到"未分类"（`ByType[0]`）。
-2. **英雄显示名。** 目前用 GameObject 名去掉 `(Clone)`，即 `Hero_301` 这种。
-   把 `ProbeMode` 打开看 `gpz()` / `gqa()` 返回什么，也许能拿到职业名。
-
----
-
-## 游戏更新之后
-
-游戏用了 GUPS.Obfuscator，**方法名和内部类名每次更新都可能全变**（`gsd` → 别的三字母）。
-重新对齐流程：
-
-```powershell
-# 1. 先看 hook 点还在不在（快，几秒）
-dotnet run --project tools/sigcheck/sigcheck.csproj
-
-# 2. 有缺失才需要重新 dump 全量符号（慢，53MB dump.cs）
-pwsh tools/dump-symbols.ps1
-```
-
-`sigcheck` 返回 2 就说明混淆名变了。按 [docs/symbols.md](docs/symbols.md) 里记录的
-"识别特征"在新 dump 里重新定位——**第 11 节有上一次（1.01.05 → 1.2.0）的完整过程和
-新旧对照表，照着走即可**。三件趁手的工具：
-
-```powershell
-# 列某个类的方法和 RVA：签名唯一的直接就能认，RVA 相同的是同一段机器码
-python tools/extract-types.py build/dump/dump.cs pp --methods
-
-# 谁调用了它 / 它调用了谁：死代码没有调用点，调用点分布能定身份
-python tools/xref-scan.py --targets pp.hbs
-
-# 机器码是否全局唯一：不唯一的绝对不能挂 hook，会 NRE 刷屏
-python tools/safe-hooks.py --types pp pl pn Monster Hero --show-unsafe
-```
-
-定位完改这几个地方：
-
-- `tools/sigcheck/Program.cs` 顶部的 `Targets`
-- `src/TbhCombatTracker/Patches.cs` 顶部的 using 别名和方法名常量
-- `Localize.cs` / `SkillTracker.cs` / `Diagnostics.cs` 里零星几个字段名
-
-> **「方法名还在」不等于「含义没变」。** 1.2.2 里 `ActiveSkill.bilm` 就从 `Unit` 变成了 `int`，
-> 名字被复用给了别的字段。每次更新都要核对**类型和签名**，不能只看名字在不在。
-> 挂载日志会连参数类型一起打（`已挂载 pp.gvz(Single, Unit)`），错位一眼可见。
-
-注意游戏更新后 BepInEx 的 `interop\` 缓存也要清掉重新生成，否则拿到的还是旧签名。
-（启动一次游戏就会自动重建。）
-
----
-
-## 分享给别人
-
-面向使用者的安装文档是 [docs/INSTALL.md](docs/INSTALL.md)（本 README 是给开发者看的）。
-
-打发布包：
-
-```powershell
-pwsh tools/package-release.ps1
-```
-
-产出 `build/release/TbhCombatTracker-v<版本>.zip`，结构对齐游戏根目录，
-对方装好 BepInEx 之后解压覆盖即可：
-
-```
-BepInEx/plugins/TbhCombatTracker.dll
-安装说明.md
-反作弊说明.md
-LICENSE
-```
-
-**不打包 BepInEx 本体**——它是 LGPL 的独立项目、版本更新频繁，让用户自己去
-官方构建站拿更稳妥，也免得本项目变成它的分发方。
-
-发布前自查：
-
-1. 在**干净的游戏目录**上按 `安装说明.md` 从零走一遍
-2. 写清楚测试过的游戏版本（当前 1.2.2）和 BepInEx 构建号（当前 be.785）
-3. **不要**把 `build/dump/` 的符号 dump（52MB，游戏反编译产物）或
-   `build/downloads/` 的 BepInEx 安装包一起发出去——`.gitignore` 已经挡住了，
-   但手动打包时容易误带
-
-### 发布一个新版本
-
-```powershell
-# 1. 改 csproj 里的 <Version>，提交
-# 2. 打标签推上去，CI 会建好 Release 和发布说明
-git tag v0.2.0 && git push origin v0.2.0
-# 3. 在装了游戏的机器上补产物并发布
-pwsh tools/package-release.ps1 -Upload
-```
-
-第 3 步为什么不能交给 CI：编译要引用 BepInEx 用 Il2CppInterop **从游戏本体生成**的
-代理程序集（`BepInEx/interop/Assembly-CSharp.dll` 等）。那批程序集是游戏代码的派生物，
-不能进公开仓库；而 runner 上也生成不了——生成它们需要游戏的 `GameAssembly.dll`
-和 `global-metadata.dat`。所以 [.github/workflows/release.yml](.github/workflows/release.yml)
-默认只建**草稿** Release（核对版本号 + 生成发布说明），产物由本机补上。
-
-想让 CI 也能自己编译，就建一个**私有**仓库放这两个目录：
-
-```
-BepInEx/core/*.dll
-BepInEx/interop/*.dll
-```
-
-然后在本仓库配 `GAME_REFS_REPO`（如 `DPS-Love/tbh-game-refs`）和 `GAME_REFS_TOKEN`
-两个 secret。工作流检测到就会自动切换成"CI 编译 + 直接发布"，不需要改 YAML。
-这样游戏派生的程序集始终留在私有仓库里，不对外分发。
-
-## 反作弊风险
-
-已经把游戏的反作弊完整逆向过一遍，结论和证据在 **[docs/anticheat.md](docs/anticheat.md)**。
-
-摘要：
-
-- 游戏用了 Anti-Cheat Toolkit，但**只启动了 3 个检测器**：`SpeedHackDetector`、
-  `ObscuredCheatingDetector`、`TimeCheatingDetector`。
-- **`InjectionDetector` 从未被启动**（启动 API 零调用点），字符串表里也**没有**
-  BepInEx / MelonLoader / Cheat Engine 之类的黑名单。游戏不检测 Mod 加载器。
-- 触发检测只会向开发者的一个 Google Apps Script webhook 发一条遥测，
-  客户端里**没有封禁逻辑**。
-- 带 BepInEx 实跑一轮关卡，游戏日志的反作弊相关命中数和未安装时**完全一致**。
-
-本 Mod 只读、不写内存、不改时间、不碰存档，三个在跑的检测器一个都碰不到。
-
-**给贡献者的红线**（做了就会真的上报）：给 `ObscuredInt/Float` 字段赋值、改 `Time.timeScale`、
-禁用检测器组件、改 `.es3` 存档、任何拉高掉落/金币/品质的改动。详见
-[docs/anticheat.md](docs/anticheat.md) 第 5 节。
-
-即便如此仍建议玩家先备份存档：`%USERPROFILE%\AppData\LocalLow\TesseractStudio\TaskBarHero`
-
----
+构建、逆向工具、游戏更新后的重新对齐、发布流程见
+[docs/DEVELOPMENT.md](https://github.com/DPS-Love/tbh-combat-tracker/blob/main/docs/DEVELOPMENT.md)。
 
 ## 许可与声明
 
-本项目采用 [MIT 协议](LICENSE)。
+[MIT 协议](LICENSE)。
 
-本项目是 TBH: Task Bar Hero 的**非官方粉丝作品**，与游戏开发商 TesseractStudio 无关，
-也未获其背书。游戏本身及其美术、数据等资产的权利归各自权利人所有；本项目只读取游戏
-运行时的可观测状态供玩家自用，**不包含也不分发任何游戏资产**。
-
-仓库内的 [docs/symbols.md](docs/symbols.md) 是为了让本 Mod 在游戏更新后能重新对齐而
-记录的符号对照，[docs/anticheat.md](docs/anticheat.md) 是为了向使用者如实说明风险而做的
-分析；两者都不包含可直接运行的游戏代码或资产。
+本项目是 TBH: Task Bar Hero 的**非官方粉丝作品**，与开发商 TesseractStudio 无关，未获其背书。
+游戏本身及其资产的权利归各自权利人所有；本项目只读取游戏运行时的可观测状态供玩家自用，
+**不包含也不分发任何游戏资产**。

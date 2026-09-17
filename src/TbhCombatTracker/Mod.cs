@@ -62,6 +62,9 @@ namespace TbhCombatTracker
         public ConfigEntry<float> UiScale;
         public ConfigEntry<float> SkewDegrees;
         public ConfigEntry<bool> FixClickThrough;
+        public ConfigEntry<bool> CheckUpdates;
+        public ConfigEntry<bool> AutoInstall;
+        public ConfigEntry<string> ManifestUrl;
 
         /// <summary>按 EEquipClassType 索引的职业配色，0 是未知/怪物。</summary>
         public ConfigEntry<string>[] JobColors;
@@ -103,6 +106,17 @@ namespace TbhCombatTracker
             FixClickThrough = c.Bind("UI", "FixClickThrough", true,
                 "光标移到面板上时临时关掉游戏窗口的点击穿透，让按钮可点、窗口可拖。"
                 + "关掉的话面板就是纯展示，点击会穿透到下面的程序"),
+
+            CheckUpdates = c.Bind("Update", "CheckUpdates", true,
+                "启动时联网检查一次更新：只 GET 仓库里的 manifest.json，不上传任何数据。"
+                + "有新版本、或本版本被标记为在当前游戏版本上会出问题时，在面板上提示"),
+            AutoInstall = c.Bind("Update", "AutoInstall", false,
+                "发现新版本后自动下载更新（校验 SHA-256 后替换 DLL，下次启动生效）。"
+                + "关着的话只提示，点面板横幅上的「更新」才下载并替换"),
+            ManifestUrl = c.Bind("Update", "ManifestUrl", "",
+                "更新清单地址。留空用官方地址（jsDelivr，不通再试 GitHub）；填 URL 可走镜像；"
+                + "填本地文件路径可用来测试横幅（tools/test-manifest.ps1 会生成一份），"
+                + "此时清单里的 download 也可以是本地 zip 路径"),
 
             JobColors = BindJobColors(c),
         };

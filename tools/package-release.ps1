@@ -27,7 +27,12 @@
 param(
     [string]$Configuration = 'Release',
     [switch]$SkipBuild,
-    [switch]$Upload
+    [switch]$Upload,
+    # 下面几个只在 -Upload 时用：写进 manifest.json，装了旧版的玩家会在面板上看到
+    [switch]$Critical,
+    [string]$NotesZh = '',
+    [string]$NotesEn = '',
+    [string]$GameDir = 'D:\Steam\steamapps\common\TaskbarHero'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,8 +85,8 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 Copy-Item $dll (Join-Path $stage 'BepInEx\plugins\') -Force
 
-# 安装说明用中文名，收包的人一眼知道先看哪个
-Copy-Item (Join-Path $root 'docs\INSTALL.md') (Join-Path $stage '安装说明.md') -Force
+# README 就是面向玩家的安装说明；包里用中文名，收包的人一眼知道先看哪个
+Copy-Item (Join-Path $root 'README.md') (Join-Path $stage '安装说明.md') -Force
 Copy-Item (Join-Path $root 'docs\anticheat.md') (Join-Path $stage '反作弊说明.md') -Force
 
 $license = Join-Path $root 'LICENSE'
@@ -118,6 +123,52 @@ if ($Upload) {
     if ($LASTEXITCODE -ne 0) { Write-Error '产物传上去了，但取消草稿状态失败，去网页上点一下发布。' }
 
     Write-Host "已发布：https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/$tag" -ForegroundColor Green
+
+    # ---- 更新 manifest.json：这是装了旧版的玩家收到通知的唯一渠道 ----
+    # broken 列表是手工维护的（很少改、要慎重），这里只覆盖 latest。
+    Write-Host "`n写 manifest.json …" -ForegroundColor Cyan
+    $manifestPath = Join-Path $root 'manifest.json'
+    $existing = if (Test-Path $manifestPath) { Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json } else { $null }
+    $broken = @()
+    if ($existing -and $existing.broken) { $broken = @($existing.broken) }
+
+    $gameVer = ''
+    $verFile = Join-Path $GameDir 'Version.txt'
+    if (Test-Path $verFile) { $gameVer = (Get-Content $verFile -Raw).Trim() }
+    else { Write-Warning "读不到 $verFile，manifest 里的 gameVersion 会是空的。" }
+
+    $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+    $manifest = [ordered]@{
+        schema = 1
+        latest = [ordered]@{
+            version     = $version
+            gameVersion = $gameVer
+            url         = "https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/$tag"
+            download    = "https://github.com/DPS-Love/tbh-combat-tracker/releases/download/$tag/$(Split-Path $zip -Leaf)"
+            sha256      = $sha
+            critical    = [bool]$Critical
+            notes       = [ordered]@{ zh = $NotesZh; en = $NotesEn }
+        }
+        broken = $broken
+    }
+    # ConvertTo-Json 会把空数组写成 null 以外的东西吗？不会，@() -> []；但要给够 Depth
+    ($manifest | ConvertTo-Json -Depth 8) + "`n" | Set-Content $manifestPath -Encoding UTF8 -NoNewline
+
+    git -C $root add manifest.json
+    git -C $root commit -q -m "manifest: v$version" 2>$null
+    git -C $root -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin main
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "manifest.json 已提交但推送失败。手动重试：git push origin main"
+    }
+    else {
+        # jsDelivr 对分支引用缓存 12 小时，主动清一下，玩家能立刻看到
+        try {
+            Invoke-WebRequest -UseBasicParsing -TimeoutSec 15 `
+                'https://purge.jsdelivr.net/gh/DPS-Love/tbh-combat-tracker@main/manifest.json' | Out-Null
+            Write-Host 'manifest 已推送，jsDelivr 缓存已清。' -ForegroundColor Green
+        }
+        catch { Write-Warning "jsDelivr 缓存清理失败（最多 12 小时后自动刷新）：$($_.Exception.Message)" }
+    }
     return
 }
 Write-Host @"
