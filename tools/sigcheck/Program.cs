@@ -52,6 +52,13 @@ namespace TbhSigCheck
             if (args.Length > 0 && args[0] == "--members")
                 return Members(args.Skip(1).ToArray());
 
+            // --simulate-update <输入dll> <输出dll>
+            // 把对游戏混淆类型（全局命名空间、2~4 个小写字母）的引用改成不存在的名字，
+            // 模拟"游戏更新后类型全被重命名"。产物替换 plugins 里的 DLL 后启动游戏，
+            // 窗口和更新提示必须仍然出现——发布前必检。见 tools/simulate-update.ps1。
+            if (args.Length > 0 && args[0] == "--simulate-update")
+                return SimulateUpdate(args.Skip(1).ToArray());
+
             var interopDir = args.FirstOrDefault() ?? DefaultInteropDir();
             var path = Directory.Exists(interopDir)
                 ? Path.Combine(interopDir, "Assembly-CSharp.dll")
@@ -120,6 +127,34 @@ namespace TbhSigCheck
                 Console.WriteLine();
             }
 
+            return 0;
+        }
+
+        private static int SimulateUpdate(string[] args)
+        {
+            if (args.Length < 2)
+            {
+                Console.Error.WriteLine("用法: sigcheck --simulate-update <输入dll> <输出dll>");
+                return 1;
+            }
+
+            var asm = AssemblyDefinition.ReadAssembly(args[0]);
+            var obfuscated = new System.Text.RegularExpressions.Regex("^[a-z]{2,4}$");
+            var renamed = new List<string>();
+
+            foreach (var tr in asm.MainModule.GetTypeReferences())
+            {
+                if (tr.Scope == null || !tr.Scope.Name.StartsWith("Assembly-CSharp", StringComparison.Ordinal)) continue;
+                if (!string.IsNullOrEmpty(tr.Namespace) || tr.DeclaringType != null) continue;
+                if (!obfuscated.IsMatch(tr.Name)) continue;
+                renamed.Add(tr.Name);
+                tr.Name = tr.Name + "_gone";
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(args[1])));
+            asm.Write(args[1]);
+            Console.WriteLine($"已把 {renamed.Count} 处游戏类型引用改成不存在的名字：{string.Join(", ", renamed.Distinct())}");
+            Console.WriteLine($"写出 {args[1]}");
             return 0;
         }
 

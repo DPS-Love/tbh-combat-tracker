@@ -87,7 +87,7 @@ Prefix/Finalizer 夹住外层，在内层把信息拼起来。攻击者归因靠
 
 ---
 
-## 三条硬规则
+## 四条硬规则
 
 ### 补丁边界：异常一个都不许漏
 
@@ -120,6 +120,26 @@ dotnet run --project tools/sigcheck/sigcheck.csproj -- --stripped UnityEngine.IM
 ```
 
 `Overlay` 另有熔断：连续 3 帧绘制失败就永久关闭面板。
+
+### 生存路径不能引用游戏类型
+
+.NET 的 JIT 在编译一个方法时会加载它**引用**的所有类型。游戏更新把 `pq` 改名之后，
+`typeof(pq)` 所在的整个方法在 JIT 阶段就抛 `TypeLoadException`——连第一行都跑不到。
+要是这发生在 `Plugin.Load` 的调用链上，插件整个加载失败：没有窗口，也就没有更新提示，
+而那正是最需要提示的时刻。
+
+规则：`Plugin.Load` → `TrackerBehaviour` → `Overlay` / `UpdateBanner` / `UpdateChecker` 这条路上，
+任何方法的**签名和方法体**都不能出现游戏类型。需要碰游戏类型的代码放进单独的方法，
+在调用处 `try/catch`（`Patches.TryPatch` 的 `Func<Type>`、`TrackerBehaviour` 里对 `StageWatcher.Tick` 的包裹、
+`BuiltinText.ReadLocaleCode` 都是这个形状）。
+
+发布前验证：
+
+```powershell
+pwsh tools/simulate-update.ps1            # 把 DLL 里的游戏类型引用改成不存在的名字后部署
+# 启动游戏：窗口必须出现，横幅显示「本版 Mod 与当前游戏不匹配」，日志里各 hook 报"类型不存在"
+pwsh tools/simulate-update.ps1 -Restore   # 重新构建，换回真 DLL
+```
 
 ---
 
@@ -229,7 +249,8 @@ interop 程序集，那是游戏代码的派生物，不能进公开仓库，run
 若建一个**私有**仓库放 `BepInEx/core/*.dll` 与 `BepInEx/interop/*.dll`，并配
 `GAME_REFS_REPO` / `GAME_REFS_TOKEN` 两个 secret，工作流会自动切换成 CI 编译并直接发布。
 
-发布前：在干净的游戏目录按 README 从零装一遍；`build/dump/`（游戏反编译产物）和 `build/downloads/` 绝不能进包。
+发布前：在干净的游戏目录按 README 从零装一遍；跑一次 `tools/simulate-update.ps1` 确认类型全丢时窗口和横幅仍在；
+`build/dump/`（游戏反编译产物）和 `build/downloads/` 绝不能进包。
 
 ---
 
@@ -251,5 +272,6 @@ interop 程序集，那是游戏代码的派生物，不能进公开仓库，run
 | `tools/safe-hooks.py` | 机器码全局唯一性，决定哪些方法能挂 |
 | `tools/check-guards.py` | 补丁方法异常防护检查（构建前自动跑） |
 | `tools/test-manifest.ps1` | 生成本地测试清单并写进 cfg，发布前看横幅效果 |
+| `tools/simulate-update.ps1` | 模拟游戏更新改名类型，验证窗口和横幅仍会出现 |
 | `tools/dump-localization.py` | 离线解包 Addressables 里的本地化字符串表 |
 | `tools/package-release.ps1` | 打包 / 上传 Release / 更新 manifest |

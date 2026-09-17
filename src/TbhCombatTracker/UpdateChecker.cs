@@ -67,6 +67,9 @@ namespace TbhCombatTracker
         public static volatile bool Installing;
         public static volatile bool Installed;          // 已换好文件，下次启动生效
         public static volatile string InstallError;
+        /// <summary>主 hook 没挂上，统计不可用——最常见的原因是游戏更新改了混淆名。
+        /// 这条不依赖网络也不依赖 Version.txt，是"Mod 和游戏对不上"最直接的信号。</summary>
+        public static volatile bool CoreHookFailed;
 
         /// <summary>游戏比本 DLL 构建时新——本地就能判断，不需要网络。</summary>
         public static bool GameNewerThanBuild =>

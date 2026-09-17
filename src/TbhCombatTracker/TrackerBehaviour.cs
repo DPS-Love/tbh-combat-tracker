@@ -26,9 +26,22 @@ namespace TbhCombatTracker
             RaycastAnchor.Destroy();
         }
 
+        private static bool _stageWatcherBroken;
+
         private void Update()
         {
-            StageWatcher.Tick();
+            // StageWatcher 的静态字段是游戏类型，游戏更新改了名的话，类本身都加载不了，
+            // 异常会在这个调用点抛（Tick 里的 try/catch 根本跑不到）。接住并停用，
+            // 热键和面板绘制必须继续。
+            if (!_stageWatcherBroken)
+            {
+                try { StageWatcher.Tick(); }
+                catch (Exception e)
+                {
+                    _stageWatcherBroken = true;
+                    Mod.Log.Warning($"关卡分段不可用（游戏类型可能已变）：{e.GetType().Name}");
+                }
+            }
 
             if (RaycastAnchor.Active)
             {

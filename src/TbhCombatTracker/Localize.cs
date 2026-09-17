@@ -24,6 +24,7 @@ namespace TbhCombatTracker
     internal static class Localize
     {
         private static readonly Dictionary<string, string> Cache = new Dictionary<string, string>();
+        private static bool _lookupBroken;
 
         /// <summary>Unity Localization 查不到时的典型返回，别把这种字符串当译文用。</summary>
         private static bool LooksUnresolved(string key, string value)
@@ -45,7 +46,21 @@ namespace TbhCombatTracker
                 if (Cache.TryGetValue(key, out var hit)) return hit;
             }
 
-            var value = Lookup(key);
+            string value = null;
+            try
+            {
+                value = Lookup(key);
+            }
+            catch (Exception e)
+            {
+                // 游戏更新把本地化包装类改了名时，Lookup 在 JIT 阶段就会抛。
+                // 译文缺失只该让文字退回原文，不该让面板消失。
+                if (!_lookupBroken)
+                {
+                    _lookupBroken = true;
+                    Mod.Log.Warning($"本地化查询不可用，文本将显示原文：{e.GetType().Name}");
+                }
+            }
 
             lock (Cache)
             {

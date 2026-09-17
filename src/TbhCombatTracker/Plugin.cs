@@ -27,7 +27,18 @@ namespace TbhCombatTracker
             // 手动打补丁而不是用 [HarmonyPatch] 特性 + PatchAll：
             // 某个 hook 因为游戏更新失配时，其余 hook 仍然能工作，而不是整个插件崩掉。
             _harmony = new Harmony(PluginGuid);
-            Patches.ApplyAll(_harmony);
+            var coreOk = false;
+            try
+            {
+                coreOk = Patches.ApplyAll(_harmony);
+            }
+            catch (Exception e)
+            {
+                // 兜底：TryPatch 已经按 hook 隔离了类型加载失败，这里接的是 Patches 类本身
+                // 加载不了之类的情况。无论如何，下面的窗口和更新检查都必须继续。
+                Mod.Log.Error($"挂载 hook 时出错，统计不可用（游戏很可能已更新）：{e.GetType().Name}: {e.Message}");
+            }
+            UpdateChecker.CoreHookFailed = !coreOk;
 
             // BasePlugin 本身不是 MonoBehaviour，拿不到 Update / OnGUI。
             // AddComponent 会把这个类注册进 IL2CPP 域并挂到一个常驻 GameObject 上。

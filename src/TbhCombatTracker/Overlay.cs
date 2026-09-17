@@ -44,11 +44,16 @@ namespace TbhCombatTracker
 
         public static void Draw()
         {
-            if (_disabled) return;
+            if (_disabled)
+            {
+                // 面板已被熔断，横幅是唯一还能说话的地方
+                UpdateBanner.DrawStandalone(panelGone: true);
+                return;
+            }
             if (!Visible)
             {
-                // 面板收起时，严重的更新警告也得让人看见
-                UpdateBanner.DrawStandalone();
+                // 玩家收起了面板，严重的更新警告仍然要让人看见
+                UpdateBanner.DrawStandalone(panelGone: false);
                 return;
             }
 

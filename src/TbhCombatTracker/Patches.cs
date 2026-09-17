@@ -85,22 +85,23 @@ namespace TbhCombatTracker
         private const string SkillDamageFactoryMethod = "AttackDamage";
         private const string SkillExecuteMethod = "njp";
 
-        public static void ApplyAll(Harmony harmony)
+        /// <summary>挂全部 hook。返回主 hook（伤害入口）是否成功——失败就意味着统计不可用。</summary>
+        public static bool ApplyAll(Harmony harmony)
         {
             // 主 hook：怪物承伤 = 我方输出。这条失败的话 mod 就没意义了。
             // 注意挂的是基类 pj —— ph(MonsterHealth) 没有覆写 gsi，怪物走的就是基类实现。
-            var ok = TryPatch(harmony, typeof(GUnitHealth), HpDeltaMethod,
+            var ok = TryPatch(harmony, () => typeof(GUnitHealth), HpDeltaMethod,
                 postfix: nameof(UnitHealth_HpDelta_Post));
 
             if (!ok)
             {
                 Mod.Log.Error(
-                    $"主 hook {typeof(GUnitHealth).FullName}.{HpDeltaMethod} 挂载失败，" +
-                    "伤害统计不会工作。游戏可能已更新导致混淆名变化，请重跑 tools/dump-symbols.ps1 并对照 docs/symbols.md。");
+                    $"主 hook UnitHealth.{HpDeltaMethod} 挂载失败，伤害统计不会工作。" +
+                    "游戏可能已更新导致混淆名变化，请重跑 tools/dump-symbols.ps1 并对照 docs/symbols.md。");
             }
 
             // 辅助 hook：拿暴击 / 伤害类型 / 伤害属性。失败只是丢失分类，数值仍然准确。
-            if (!TryPatch(harmony, typeof(GMonster), TakeDamageMethod,
+            if (!TryPatch(harmony, () => typeof(GMonster), TakeDamageMethod,
                     prefix: nameof(TakeDamage_Pre),
                     finalizer: nameof(TakeDamage_Fin)))
             {
@@ -110,7 +111,7 @@ namespace TbhCombatTracker
 
             // 英雄承伤的分类。之前只挂了 Monster.grd，所以承伤面板点开没有类型/元素两栏。
             // Hero.grd 是独立覆写、机器码全局唯一，可以安全另挂一份。
-            if (!TryPatch(harmony, typeof(GHero), TakeDamageMethod,
+            if (!TryPatch(harmony, () => typeof(GHero), TakeDamageMethod,
                     prefix: nameof(TakeDamage_Pre),
                     finalizer: nameof(TakeDamage_Fin)))
             {
@@ -121,7 +122,7 @@ namespace TbhCombatTracker
             // 挂基类 pj 抓不到英雄——虚函数分发会走覆写。
             if (Mod.Config.TrackIncoming.Value)
             {
-                if (!TryPatch(harmony, typeof(GHeroHealth), HpDeltaMethod,
+                if (!TryPatch(harmony, () => typeof(GHeroHealth), HpDeltaMethod,
                         postfix: nameof(HeroHealth_HpDelta_Post)))
                 {
                     Mod.Log.Warning("承伤统计 hook 挂载失败，只统计输出。");
@@ -131,7 +132,7 @@ namespace TbhCombatTracker
             // 点击穿透修正：让面板能接收鼠标。失败只是按钮点不了，不影响统计。
             if (Mod.Config.FixClickThrough.Value)
             {
-                if (!TryPatch(harmony, typeof(GWindowNative), ClickThroughMethod,
+                if (!TryPatch(harmony, () => typeof(GWindowNative), ClickThroughMethod,
                         prefix: nameof(WindowStyle_Pre),
                         postfix: nameof(WindowStyle_Post)))
                 {
@@ -143,38 +144,43 @@ namespace TbhCombatTracker
             // 任一失败只是该来源被并进"自然回复"，不影响总量。
             if (Mod.Config.TrackHealing.Value)
             {
-                TryPatch(harmony, typeof(GPriestHeal), PriestHealMethod,
+                TryPatch(harmony, () => typeof(GPriestHeal), PriestHealMethod,
                     prefix: nameof(PriestHeal_Pre), finalizer: nameof(PriestHeal_Fin));
 
-                TryPatch(harmony, typeof(GUnit), UnitTakeDamageMethod,
+                TryPatch(harmony, () => typeof(GUnit), UnitTakeDamageMethod,
                     prefix: nameof(UnitTakeDamage_Pre), finalizer: nameof(UnitTakeDamage_Fin));
 
-                TryPatch(harmony, typeof(GUnit), UnitOnKilledMethod,
+                TryPatch(harmony, () => typeof(GUnit), UnitOnKilledMethod,
                     prefix: nameof(UnitOnKilled_Pre), finalizer: nameof(UnitOnKilled_Fin));
 
-                TryPatch(harmony, typeof(GUnitHealth), HealFunnelMethod,
+                TryPatch(harmony, () => typeof(GUnitHealth), HealFunnelMethod,
                     prefix: nameof(HealFunnel_Pre), finalizer: nameof(HealFunnel_Fin));
 
                 // 圣域和治愈都是 (true,true) 标志，分不开；各挂各的执行入口才能区分。
-                TryPatch(harmony, typeof(GPriestSanctuary), SkillExecuteMethod,
+                TryPatch(harmony, () => typeof(GPriestSanctuary), SkillExecuteMethod,
                     prefix: nameof(Sanctuary_Pre), finalizer: nameof(Sanctuary_Fin));
             }
 
             // 技能级归因：伤害饼图的数据来源。失败只是技能维度缺失，总量不受影响。
             if (Mod.Config.TrackSkills.Value)
             {
-                if (!TryPatch(harmony, typeof(GActiveSkill), SkillDamageFactoryMethod,
+                if (!TryPatch(harmony, () => typeof(GActiveSkill), SkillDamageFactoryMethod,
                         postfix: nameof(SkillDamage_Post)))
                 {
                     Mod.Log.Warning("技能归因 hook 挂载失败：伤害仍会统计，但拆不出技能维度。");
                 }
 
-                TryPatch(harmony, typeof(GExplosiveBolt), SkillDamageFactoryMethod,
+                TryPatch(harmony, () => typeof(GExplosiveBolt), SkillDamageFactoryMethod,
                     postfix: nameof(SkillDamage_Post));
             }
 
             if (Mod.Config.DiagnosticMode.Value)
-                Diagnostics.Apply(harmony);
+            {
+                try { Diagnostics.Apply(harmony); }
+                catch (Exception e) { Mod.Log.Error($"诊断模式挂载失败：{e.GetType().Name}: {e.Message}"); }
+            }
+
+            return ok;
         }
 
         /// <summary>
@@ -184,11 +190,25 @@ namespace TbhCombatTracker
         /// </summary>
         private static readonly Dictionary<IntPtr, string> PatchedNative = new Dictionary<IntPtr, string>();
 
-        private static bool TryPatch(Harmony harmony, Type target, string method,
+        /// <summary>
+        /// 目标类型用 <c>() =&gt; typeof(X)</c> 传进来，而不是直接传 <c>typeof(X)</c>。
+        ///
+        /// 原因是 .NET 的 JIT：一个方法体里只要**引用**了某个类型，编译这个方法时就要把它
+        /// 加载进来。游戏更新把 <c>pq</c> 改成别的名字之后，<c>typeof(pq)</c> 所在的整个方法
+        /// 在 JIT 阶段就抛 <c>TypeLoadException</c>——连第一行都跑不到。1.2.4 更新时
+        /// v0.2.2 就是这样整个插件加载失败的：窗口不出现，什么提示都没有。
+        ///
+        /// 把 <c>typeof</c> 放进 lambda，它就成了另一个方法，只在被调用时才 JIT；
+        /// 失败发生在下面的 try 里，只影响这一个 hook。
+        /// </summary>
+        private static bool TryPatch(Harmony harmony, Func<Type> targetType, string method,
                                      string prefix = null, string postfix = null, string finalizer = null)
         {
+            var label = "?";
             try
             {
+                var target = targetType();
+                label = target.FullName;
                 var original = AccessTools.DeclaredMethod(target, method);
                 if (original == null)
                 {
@@ -223,9 +243,14 @@ namespace TbhCombatTracker
                 Mod.Log.Msg($"已挂载 {target.FullName}.{method}({sig})");
                 return true;
             }
+            catch (TypeLoadException e)
+            {
+                Mod.Log.Error($"挂载 {label}.{method} 失败：类型不存在（{e.Message}）。游戏很可能已更新。");
+                return false;
+            }
             catch (Exception e)
             {
-                Mod.Log.Error($"挂载 {target.FullName}.{method} 失败：{e}");
+                Mod.Log.Error($"挂载 {label}.{method} 失败：{e}");
                 return false;
             }
         }

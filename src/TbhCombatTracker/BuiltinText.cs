@@ -29,11 +29,7 @@ namespace TbhCombatTracker
 
                 try
                 {
-                    // SelectedLocale 是**静态**属性；同名的 GetSelectedLocale() 是实例方法，
-                    // 要先拿 Instance 才能调，绕一圈没必要。
-                    var locale = GLocSettings.SelectedLocale;
-                    // LocaleIdentifier 是结构体，不能对它用 ?.，所以先判 locale 本身。
-                    var code = locale != null ? locale.Identifier.Code : null;
+                    var code = ReadLocaleCode();
 
                     // 还没初始化完就先别记住结论——否则第一次调用赶在本地化启动之前，
                     // 整局都会被钉死在英文。查不到就这次按英文走，下次再问一遍。
@@ -52,6 +48,19 @@ namespace TbhCombatTracker
 
                 return _chinese;
             }
+        }
+
+        /// <summary>
+        /// 单独一个方法：引用 Unity Localization 类型的代码只在这里。它若加载失败，
+        /// 异常落在上面的 try 里，横幅退回英文，而不是让整个面板画不出来。
+        /// </summary>
+        private static string ReadLocaleCode()
+        {
+            // SelectedLocale 是**静态**属性；同名的 GetSelectedLocale() 是实例方法，
+            // 要先拿 Instance 才能调，绕一圈没必要。
+            var locale = GLocSettings.SelectedLocale;
+            // LocaleIdentifier 是结构体，不能对它用 ?.，所以先判 locale 本身。
+            return locale != null ? locale.Identifier.Code : null;
         }
 
         public static string Pick(string zh, string en) => Chinese ? zh : en;

@@ -30,6 +30,7 @@ namespace TbhCombatTracker
             || UpdateChecker.Installed
             || UpdateChecker.InstallError != null
             || UpdateChecker.Current == UpdateChecker.State.UpdateAvailable
+            || UpdateChecker.CoreHookFailed
             || UpdateChecker.GameNewerThanBuild;
 
         public static bool Visible => !_dismissed && HasNotice;
@@ -41,10 +42,15 @@ namespace TbhCombatTracker
             DrawInner(r);
         }
 
-        /// <summary>面板隐藏时，严重情况单独画一条在屏幕左上角。</summary>
-        public static void DrawStandalone()
+        /// <summary>
+        /// 面板不在时单独画一条在屏幕左上角。
+        /// 玩家主动收起面板（F9）只画严重情况；面板因为连续绘制失败被熔断（panelGone）时，
+        /// 这里是唯一还能说话的地方，有什么都画。
+        /// </summary>
+        public static void DrawStandalone(bool panelGone)
         {
-            if (_dismissed || !Urgent) return;
+            if (_dismissed) return;
+            if (!(Urgent || (panelGone && HasNotice))) return;
             try
             {
                 EnsureStyles();
@@ -153,6 +159,14 @@ namespace TbhCombatTracker
                     BuiltinText.Pick($"有新版本 v{UpdateChecker.Latest}" + (UpdateChecker.LatestCritical ? "（重要）" : ""),
                                      $"Update available: v{UpdateChecker.Latest}" + (UpdateChecker.LatestCritical ? " (important)" : "")),
                     Pick(UpdateChecker.LatestNotesZh, UpdateChecker.LatestNotesEn) ?? "");
+
+            if (UpdateChecker.CoreHookFailed)
+                return (amber,
+                    BuiltinText.Pick("本版 Mod 与当前游戏不匹配，统计不可用",
+                                     "This build does not match the current game; stats unavailable"),
+                    BuiltinText.Pick(
+                        $"游戏 {UpdateChecker.Game?.ToString() ?? "?"}，本版为 {UpdateChecker.BuiltFor?.ToString() ?? "?"} 构建。游戏本身不受影响，留意新版本",
+                        $"Game {UpdateChecker.Game?.ToString() ?? "?"}, this build targets {UpdateChecker.BuiltFor?.ToString() ?? "?"}. The game is unaffected; watch for an update"));
 
             // 只剩"游戏比构建时新"这一种情况
             return (amber,
