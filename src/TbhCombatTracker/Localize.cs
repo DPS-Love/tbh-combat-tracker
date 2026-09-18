@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 
-using GLoc = global::oa;
 
 namespace TbhCombatTracker
 {
@@ -82,11 +81,11 @@ namespace TbhCombatTracker
         {
             string first = null, second = null;
 
-            try { first = GLoc.gjf(key); } catch { /* 表不存在会抛 */ }
-            try { second = GLoc.gjd(key); } catch { }
+            try { first = GameSymbols.Localized(key); } catch { /* 表不存在会抛 */ }
+            try { second = GameSymbols.SourceText(key); } catch { }
 
             if (Mod.Config.LocalizationDebug.Value)
-                Mod.Log.Msg($"[i18n] '{key}'  gjf='{first ?? "null"}'  gjd='{second ?? "null"}'");
+                Mod.Log.Msg($"[i18n] '{key}'  localized='{first ?? "null"}'  source='{second ?? "null"}'");
 
             if (!LooksUnresolved(key, first)) return first;
             if (!LooksUnresolved(key, second)) return second;

@@ -66,23 +66,13 @@ namespace TbhCombatTracker
             }
 
             _rect = GUI.Window(WindowId, _rect, (GUI.WindowFunction)DrawBody,
-                               $"{stats.Name} — {ViewName(_targetView)}");
+                               Strings.DetailTitle(stats.Name, Strings.ViewLabel(_targetView)));
         }
 
         private static SourceStats Find()
         {
             var bucket = DamageTracker.Current.Bucket(_targetView);
             return bucket.TryGetValue(_targetId, out var s) ? s : null;
-        }
-
-        private static string ViewName(TrackerView v)
-        {
-            switch (v)
-            {
-                case TrackerView.Incoming: return "承伤";
-                case TrackerView.Healing: return "治疗";
-                default: return "输出";
-            }
         }
 
         private static void DrawBody(int id)
@@ -97,13 +87,13 @@ namespace TbhCombatTracker
                 // ---- 维度切换 ----
                 if (_targetView == TrackerView.Healing)
                 {
-                    Shadowed(new Rect(Pad, top, 120f, TabH), "恢复来源", _tab);
+                    Shadowed(new Rect(Pad, top, 120f, TabH), Strings.TabHealSources, _tab);
                 }
                 else
                 {
-                    DrawTab(new Rect(Pad, top, 56f, TabH), "技能", Dimension.Skill);
-                    DrawTab(new Rect(Pad + 60f, top, 56f, TabH), "类型", Dimension.DamageType);
-                    DrawTab(new Rect(Pad + 120f, top, 56f, TabH), "元素", Dimension.Attribute);
+                    DrawTab(new Rect(Pad, top, 56f, TabH), Strings.TabSkills, Dimension.Skill);
+                    DrawTab(new Rect(Pad + 60f, top, 56f, TabH), Strings.TabTypes, Dimension.DamageType);
+                    DrawTab(new Rect(Pad + 120f, top, 56f, TabH), Strings.TabElements, Dimension.Attribute);
                 }
 
                 if (GUI.Button(new Rect(_rect.width - Pad - 22f, top, 22f, TabH), "×"))
@@ -137,7 +127,7 @@ namespace TbhCombatTracker
 
                 if (slices.Count == 0)
                 {
-                    Shadowed(new Rect(lx, ly, lw, RowH), "暂无细分数据", _legend);
+                    Shadowed(new Rect(lx, ly, lw, RowH), Strings.NoBreakdown, _legend);
                 }
                 else
                 {
@@ -161,7 +151,7 @@ namespace TbhCombatTracker
 
                     if (slices.Count > shown)
                         Shadowed(new Rect(lx + 12f, ly, lw, RowH),
-                                 $"…另有 {slices.Count - shown} 项", _legend);
+                                 Strings.MoreItems(slices.Count - shown), _legend);
                 }
 
                 GUI.DragWindow();

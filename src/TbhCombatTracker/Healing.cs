@@ -76,7 +76,7 @@ namespace TbhCombatTracker
         /// 恢复来源名。这几档是我们自己划分的概念，游戏里没有对应文本，
         /// 所以走内置双语表而不是硬编码中文——Mod 是公开发布的。
         /// </summary>
-        public static string KindName(int kind) => BuiltinText.HealKind(kind);
+        public static string KindName(int kind) => Strings.HealKind(kind);
 
         // 当前括号状态。IL2CPP 的游戏逻辑都在主线程，但标成 ThreadStatic 更保险。
         [ThreadStatic] private static HealKind _kind;

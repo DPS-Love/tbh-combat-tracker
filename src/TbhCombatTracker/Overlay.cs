@@ -127,25 +127,9 @@ namespace TbhCombatTracker
 
         private static int RowCount() => DamageTracker.Current.Bucket(_view).Count;
 
-        private static string ViewLabel(TrackerView v)
-        {
-            switch (v)
-            {
-                case TrackerView.Incoming: return "承伤";
-                case TrackerView.Healing: return "治疗";
-                default: return "输出";
-            }
-        }
+        private static string ViewLabel(TrackerView v) => Strings.ViewLabel(v);
 
-        private static string EmptyHint(TrackerView v)
-        {
-            switch (v)
-            {
-                case TrackerView.Incoming: return "尚未承受伤害…";
-                case TrackerView.Healing: return "尚未产生治疗…";
-                default: return "等待伤害数据…";
-            }
-        }
+        private static string EmptyHint(TrackerView v) => Strings.EmptyHint(v);
 
         private static void DrawWindow(int id)
         {
@@ -199,7 +183,7 @@ namespace TbhCombatTracker
                       : _view == TrackerView.Incoming ? TrackerView.Healing
                       : TrackerView.Outgoing;
             }
-            if (GUI.Button(new Rect(headRect.xMax - btnW, headRect.y, btnW, 17f), "重置"))
+            if (GUI.Button(new Rect(headRect.xMax - btnW, headRect.y, btnW, 17f), Strings.Reset))
                 DamageTracker.ResetCurrent();
 
             top += HeaderH;
@@ -291,15 +275,15 @@ namespace TbhCombatTracker
             {
                 // 治疗没有暴击这一说，换成"主要来源 + 次数"更有信息量
                 var top = s.TopHealKind;
-                var lead = top ?? $"{s.Hits} 次";
+                var lead = top ?? Strings.HitsCount(s.Hits);
                 Shadowed(new Rect(at.x, y, CardW - 6f, DetailH),
-                         $"{lead}   {s.Hits} 次", _detail);
+                         $"{lead}   {Strings.HitsCount(s.Hits)}", _detail);
             }
             else
             {
-                var crit = s.Hits > 0 ? $"暴 {s.CritRate * 100d:0}%" : "暴 —";
+                var crit = s.Hits > 0 ? Strings.CritRate(s.CritRate) : Strings.CritNone;
                 Shadowed(new Rect(at.x, y, CardW - 6f, DetailH),
-                         $"{crit}   最大 {Short(s.MaxHit)}", _detail);
+                         $"{crit}   {Strings.MaxHit(Short(s.MaxHit))}", _detail);
             }
         }
 

@@ -74,11 +74,13 @@ Prefix/Finalizer 夹住外层，在内层把信息拼起来。攻击者归因靠
 
 | 文件 | 职责 |
 |---|---|
-| `Patches.cs` | 所有和游戏类型耦合的代码：hook 点、类型别名、方法名常量。游戏更新后主要改这里 |
+| `GameSymbols.cs` | **所有混淆名**：类型别名、Harmony 方法名、字段访问器。游戏更新后只改这里 |
+| `Strings.cs` | **所有由我们提供的文案**（中 / 英），界面模块不写字面量 |
+| `Patches.cs` | hook 逻辑：挂哪些方法、Prefix/Postfix 各拿什么。不含混淆名 |
 | `DamageTracker.cs` | 聚合统计、战斗切分、CSV 导出 |
 | `Healing.cs` / `SkillTracker.cs` | 恢复来源分类、技能级归因的上下文 |
 | `StageWatcher.cs` | 关卡分段信号 |
-| `Localize.cs` / `BuiltinText.cs` | 读游戏本地化表；游戏没有的文本按语言给内置文案 |
+| `Localize.cs` | 读游戏本地化表（英雄名、技能名、元素属性） |
 | `Overlay.cs` / `DetailWindow.cs` / `PieChart.cs` | IMGUI 面板、角色明细、饼图 |
 | `UpdateChecker.cs` / `UpdateBanner.cs` | 更新检查、一键更新、横幅 |
 | `RaycastAnchor.cs` / `ClickThrough.cs` | 解除窗口点击穿透（射线靶为主，Win32 兜底） |
@@ -133,6 +135,12 @@ dotnet run --project tools/sigcheck/sigcheck.csproj -- --stripped UnityEngine.IM
 在调用处 `try/catch`（`Patches.TryPatch` 的 `Func<Type>`、`TrackerBehaviour` 里对 `StageWatcher.Tick` 的包裹、
 `BuiltinText.ReadLocaleCode` 都是这个形状）。
 
+同一条规则的另一面：**生存路径上不能触发游戏系统的初始化。**
+`LocalizationSettings.SelectedLocale` 在本地化未初始化时会同步跑完整个 Addressables 初始化；
+我们的第一帧 OnGUI 早于游戏自己的启动流程，替它把初始化跑掉，游戏的场景就起不来（画面全黑、UI 布局狂刷警告）。
+所以 `Strings.ReadLocaleCode` 只读已缓存的异步句柄，没完成就按英文走。凡是"读一下就会顺手初始化"的
+游戏 / 引擎 API，第一帧都不能碰。
+
 发布前验证：
 
 ```powershell
@@ -164,9 +172,10 @@ pwsh tools/dump-symbols.ps1
 4. **调用点**——`python tools/xref-scan.py --targets <类>.<方法>`；死代码没有调用点
 5. slot 号——❌ 别用，会变
 
-改这几处：`tools/sigcheck/Program.cs` 的 `Targets`；`Patches.cs` 顶部的别名和常量；
-`Localize.cs` / `SkillTracker.cs` / `Diagnostics.cs` 里零星的字段名。改完 `sigcheck` 应"全部命中"，
-`safe-hooks.py` 应全部唯一。
+改 **`src/TbhCombatTracker/GameSymbols.cs`**——所有混淆名只在这一个文件：类型别名（`global using`）、
+Harmony 按名字找的方法（`[Hook]` 标注的常量）、字段访问器。改完构建，再跑 `sigcheck`：
+它直接读构建出的 DLL，核对其中引用的每一个游戏类型和成员、以及 `[Hook]` 标注的方法名是否仍在，
+不用维护清单。`safe-hooks.py` 应全部唯一。
 
 > **名字还在 ≠ 含义没变。** 混淆名会被复用给别的成员（`bilm` 曾从 `Unit` 变成 `int`，`hbs` 曾从三参变两参）。
 > 核对类型和签名，不要只看名字。挂载日志带参数类型就是为此。
@@ -266,7 +275,7 @@ interop 程序集，那是游戏代码的派生物，不能进公开仓库，run
 |---|---|
 | `tools/install-bepinex.ps1` | 安装 / 切换 / 卸载 BepInEx BE 构建 |
 | `tools/dump-symbols.ps1` | Il2CppDumper 重新 dump 符号到 `build/dump/` |
-| `tools/sigcheck/` | 核对 hook 点签名；`--stripped` 查被裁剪的 API；`--members` 列 interop 成员 |
+| `tools/sigcheck/` | 读构建出的 DLL，核对它引用的每个游戏类型 / 成员 / `[Hook]` 方法名是否还在；`--stripped` 查被裁剪的 API；`--members` 列 interop 成员；`--dump` 看类型生成形态 |
 | `tools/extract-types.py` | 从 dump.cs 抠类型；`--methods` 列方法 + RVA |
 | `tools/xref-scan.py` | 机器码调用点扫描：谁调用了它 / 它调用了谁 |
 | `tools/safe-hooks.py` | 机器码全局唯一性，决定哪些方法能挂 |

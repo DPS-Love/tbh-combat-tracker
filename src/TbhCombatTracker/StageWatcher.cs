@@ -1,9 +1,6 @@
 using System;
 using UnityEngine;
 
-using GStageManager = TaskbarHero.StageManager;
-using GStageState = TaskbarHero.EStageState;
-using GUiStage = TaskbarHero.UI_Stage;
 
 namespace TbhCombatTracker
 {
@@ -122,7 +119,7 @@ namespace TbhCombatTracker
             _lastSegmentAt = now;
 
             _stageCount++;
-            var label = string.IsNullOrEmpty(stageName) ? $"关卡 #{_stageCount}" : stageName;
+            var label = string.IsNullOrEmpty(stageName) ? Strings.StageLabel(_stageCount) : stageName;
             DamageTracker.BeginStage(label);
             Mod.Log.Msg($"[stage] === 开始统计 {label} ===");
         }

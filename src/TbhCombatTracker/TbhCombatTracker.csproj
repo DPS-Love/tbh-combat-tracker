@@ -61,6 +61,10 @@
       <Private>false</Private>
     </Reference>
     <!-- 读游戏当前语言（LocalizationSettings.GetSelectedLocale）-->
+    <!-- 只为了只读地看本地化的异步句柄（AsyncOperationHandle）：IsDone / Result -->
+    <Reference Include="$(BepInExInteropDir)\Unity.ResourceManager.dll">
+      <Private>false</Private>
+    </Reference>
     <Reference Include="$(BepInExInteropDir)\Unity.Localization.dll">
       <Private>false</Private>
     </Reference>

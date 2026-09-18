@@ -438,11 +438,8 @@ de-DE    Nahkampf / Geschoss / Flächen / Beschwörungs
 5. **slot 号**——❌ **别用**。`gsd` 原本 slot 6、`gsi` slot 9，1.2.0 里对应的 `gvz` 是 slot 8、
    `gvu` 是 slot 9，顺序整个变了。
 
-改完这两处，再跑 `sigcheck` 应当"全部命中"：
-
-- `tools/sigcheck/Program.cs` 顶部的 `Targets`
-- `src/TbhCombatTracker/Patches.cs` 顶部的 using 别名和方法名常量
-  （另外 `Localize.cs` / `SkillTracker.cs` / `Diagnostics.cs` 里也各有几个）
+定位完只改一个文件：`src/TbhCombatTracker/GameSymbols.cs`（类型别名、`[Hook]` 方法名常量、字段访问器）。
+构建后跑 `sigcheck`，它从 DLL 里读出所有被引用的游戏符号逐个核对，应当"全部命中"。
 
 > ⚠️ 静态验证到此为止只能保证"挂得上、不崩"。**数值和分类是否正确仍要进游戏实测**——
 > 尤其是恢复来源分类（`HealingDebug`）和伤害归因（面板对账）。

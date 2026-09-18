@@ -5,13 +5,6 @@ using System.Reflection;
 using System.Text;
 using HarmonyLib;
 
-using GMonster = TaskbarHero.Monster;
-using GUnitHealth = global::pq;
-using GMonsterHealth = global::po;
-using GHeroHealth = global::pm;
-using GPriestHeal = TaskbarHero.Combat.PriestHeal;
-using GHeroActiveSkill = TaskbarHero.Combat.HeroActiveSkill;
-using GHealField = global::bgt;
 
 namespace TbhCombatTracker
 {
@@ -81,13 +74,13 @@ namespace TbhCombatTracker
 
             var types = new (string Label, Type Type)[]
             {
-                ("pq (UnitHealth)", typeof(GUnitHealth)),
-                ("po (MonsterHealth)", typeof(GMonsterHealth)),
-                ("pm (HeroHealth)", typeof(GHeroHealth)),
+                ("UnitHealth", typeof(GUnitHealth)),
+                ("MonsterHealth", typeof(GMonsterHealth)),
+                ("HeroHealth", typeof(GHeroHealth)),
                 ("Monster", typeof(GMonster)),
                 ("PriestHeal", typeof(GPriestHeal)),
                 ("HeroActiveSkill", typeof(GHeroActiveSkill)),
-                ("bgt (治疗场)", typeof(GHealField)),
+                ("治疗场", typeof(GHealField)),
             };
 
             var prefix = new HarmonyMethod(

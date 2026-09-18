@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-using GActiveSkill = TaskbarHero.Combat.ActiveSkill;
 
 namespace TbhCombatTracker
 {
@@ -37,7 +36,7 @@ namespace TbhCombatTracker
             try
             {
                 _skill = NameOf(skill);
-                var owner = skill.bimr;
+                var owner = GameSymbols.OwnerOf(skill);
                 _ownerId = owner != null ? owner.GetInstanceID() : 0;
                 _at = Time.realtimeSinceStartup;
             }
@@ -82,7 +81,7 @@ namespace TbhCombatTracker
             string name = null;
             try
             {
-                var key = skill.skillCache?.bgkf?.SkillNameKey;
+                var key = GameSymbols.SkillInfoOf(skill)?.SkillNameKey;
                 name = Localize.TryGet(key);
             }
             catch { /* 没有技能数据的（怪物普攻之类）走兜底 */ }
@@ -108,8 +107,8 @@ namespace TbhCombatTracker
         {
             switch (typeName)
             {
-                case "MonsterActive": return BuiltinText.MonsterAttack;
-                case "ActiveSkill": return BuiltinText.UnknownSkill;
+                case "MonsterActive": return Strings.MonsterAttack;
+                case "ActiveSkill": return Strings.UnknownSkill;
                 default: return null;
             }
         }
@@ -134,7 +133,7 @@ namespace TbhCombatTracker
             }
 
             // KnightBaseAtk / ArcherBaseAtk / … 都是普通攻击，统一叫法
-            if (name == "BaseAtk") return BuiltinText.NormalAttack;
+            if (name == "BaseAtk") return Strings.NormalAttack;
 
             return name;
         }

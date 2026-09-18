@@ -87,7 +87,7 @@ namespace TbhCombatTracker
             if (UpdateChecker.CurrentBroken && !Plugin.Disabled)
             {
                 x -= bw + 4f;
-                if (GUI.Button(new Rect(x, by, bw, bh), BuiltinText.Pick("停用", "Disable"), _btn))
+                if (GUI.Button(new Rect(x, by, bw, bh), Strings.BtnDisable, _btn))
                     Plugin.DisableForThisSession();
             }
 
@@ -95,8 +95,8 @@ namespace TbhCombatTracker
             {
                 x -= bw + 4f;
                 var label = UpdateChecker.Installing
-                    ? BuiltinText.Pick("更新中…", "Updating…")
-                    : BuiltinText.Pick("更新", "Update");
+                    ? Strings.BtnUpdating
+                    : Strings.BtnUpdate;
                 GUI.enabled = !UpdateChecker.Installing;
                 if (GUI.Button(new Rect(x, by, bw, bh), label, _btn))
                     UpdateChecker.RequestInstall();
@@ -106,7 +106,7 @@ namespace TbhCombatTracker
             if (!string.IsNullOrEmpty(UpdateChecker.ReleaseUrl))
             {
                 x -= bw + 4f;
-                if (GUI.Button(new Rect(x, by, bw, bh), BuiltinText.Pick("下载页", "Release"), _btn))
+                if (GUI.Button(new Rect(x, by, bw, bh), Strings.BtnRelease, _btn))
                     OpenUrl(UpdateChecker.ReleaseUrl);
             }
         }
@@ -129,56 +129,43 @@ namespace TbhCombatTracker
 
             if (UpdateChecker.Installed)
                 return (green,
-                    BuiltinText.Pick($"已更新到 v{UpdateChecker.Latest}，重启游戏生效",
-                                     $"Updated to v{UpdateChecker.Latest} — restart the game"),
-                    BuiltinText.Pick("如新版本加载失败，把 plugins 里的 .old 改回 .dll 即可回滚",
-                                     "If it fails to load, rename the .old file in plugins back to .dll"));
+                    Strings.Updated(UpdateChecker.Latest),
+                    Strings.UpdatedHint);
 
             if (Plugin.Disabled)
                 return (new Color(0.30f, 0.30f, 0.34f, 0.92f),
-                    BuiltinText.Pick("已停用本次会话的统计，重启游戏恢复",
-                                     "Stats disabled for this session — restart the game to re-enable"),
-                    UpdateChecker.CanInstall
-                        ? BuiltinText.Pick("可以先点「更新」，重启后就是新版本", "Click Update now; the new version loads on restart")
-                        : BuiltinText.Pick("请到下载页获取新版本", "Get the new version from the release page"));
+                    Strings.DisabledTitle,
+                    UpdateChecker.CanInstall ? Strings.DisabledHintUpdate : Strings.DisabledHintRelease);
 
             if (UpdateChecker.CurrentBroken)
                 return (red,
-                    BuiltinText.Pick($"v{UpdateChecker.Mine} 在游戏 {UpdateChecker.Game} 上会出问题",
-                                     $"v{UpdateChecker.Mine} is known to misbehave on game {UpdateChecker.Game}"),
-                    Pick(UpdateChecker.BrokenReasonZh, UpdateChecker.BrokenReasonEn)
-                        ?? BuiltinText.Pick("可以停用本次统计，或更新到新版本", "You can disable stats for now, or update"));
+                    Strings.BrokenTitle(UpdateChecker.Mine, UpdateChecker.Game),
+                    Pick(UpdateChecker.BrokenReasonZh, UpdateChecker.BrokenReasonEn) ?? Strings.BrokenHint);
 
             if (UpdateChecker.InstallError != null)
                 return (amber,
-                    BuiltinText.Pick("自动更新失败，请手动下载", "Auto-update failed — download manually"),
+                    Strings.UpdateFailed,
                     UpdateChecker.InstallError);
 
             if (UpdateChecker.Current == UpdateChecker.State.UpdateAvailable)
                 return (UpdateChecker.LatestCritical ? red : amber,
-                    BuiltinText.Pick($"有新版本 v{UpdateChecker.Latest}" + (UpdateChecker.LatestCritical ? "（重要）" : ""),
-                                     $"Update available: v{UpdateChecker.Latest}" + (UpdateChecker.LatestCritical ? " (important)" : "")),
+                    Strings.UpdateAvailable(UpdateChecker.Latest, UpdateChecker.LatestCritical),
                     Pick(UpdateChecker.LatestNotesZh, UpdateChecker.LatestNotesEn) ?? "");
 
             if (UpdateChecker.CoreHookFailed)
                 return (amber,
-                    BuiltinText.Pick("本版 Mod 与当前游戏不匹配，统计不可用",
-                                     "This build does not match the current game; stats unavailable"),
-                    BuiltinText.Pick(
-                        $"游戏 {UpdateChecker.Game?.ToString() ?? "?"}，本版为 {UpdateChecker.BuiltFor?.ToString() ?? "?"} 构建。游戏本身不受影响，留意新版本",
-                        $"Game {UpdateChecker.Game?.ToString() ?? "?"}, this build targets {UpdateChecker.BuiltFor?.ToString() ?? "?"}. The game is unaffected; watch for an update"));
+                    Strings.MismatchTitle,
+                    Strings.MismatchHint(UpdateChecker.Game, UpdateChecker.BuiltFor));
 
             // 只剩"游戏比构建时新"这一种情况
             return (amber,
-                BuiltinText.Pick($"游戏已更新到 {UpdateChecker.Game}，本版 Mod 是为 {UpdateChecker.BuiltFor} 构建的",
-                                 $"Game updated to {UpdateChecker.Game}; this build targets {UpdateChecker.BuiltFor}"),
-                BuiltinText.Pick("统计可能缺失或不准，不影响游戏本身。留意新版本",
-                                 "Stats may be missing or off; the game itself is unaffected. Watch for an update"));
+                Strings.GameNewerTitle(UpdateChecker.Game, UpdateChecker.BuiltFor),
+                Strings.GameNewerHint);
         }
 
         private static string Pick(string zh, string en)
         {
-            var s = BuiltinText.Chinese ? (zh ?? en) : (en ?? zh);
+            var s = Strings.Chinese ? (zh ?? en) : (en ?? zh);
             return string.IsNullOrWhiteSpace(s) ? null : s;
         }
 

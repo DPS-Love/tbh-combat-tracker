@@ -46,7 +46,7 @@ namespace TbhCombatTracker
 
         internal void AddSkill(string skill, double amount)
         {
-            if (string.IsNullOrEmpty(skill)) skill = BuiltinText.UnknownSkill;
+            if (string.IsNullOrEmpty(skill)) skill = Strings.UnknownSkill;
             if (!BySkill.TryGetValue(skill, out var st)) st = new SkillStats();
             st.Total += amount;
             st.Hits++;
@@ -374,7 +374,7 @@ namespace TbhCombatTracker
         {
             var raw = i >= 0 && i < TypeNames.Length ? TypeNames[i] : "?";
             if (GameTypeNames.TryGetValue(raw, out var v)) return v;
-            return BuiltinText.DamageType(raw);
+            return Strings.DamageType(raw);
         }
 
         private static Dictionary<string, string> _gameTypeNames;

@@ -7,35 +7,19 @@ using Mono.Cecil;
 
 namespace TbhSigCheck
 {
+    /// <summary>
+    /// 默认模式：读**构建出来的** TbhCombatTracker.dll，把它引用的每一个游戏符号
+    /// 拿到当前 interop 的 Assembly-CSharp.dll 里核对——不维护任何清单。
+    ///
+    ///   1. 类型引用      每个指向 Assembly-CSharp 的 TypeRef（GameSymbols.cs 里的别名都在这）
+    ///   2. 成员引用      每个指向 Assembly-CSharp 的 MethodRef / FieldRef（字段访问器的 get_xxx 等）
+    ///   3. [Hook] 常量   GameSymbols 里标了 [Hook(typeof(...))] 的方法名，
+    ///                    检查它在那些类型上**各自**声明（Harmony 的 DeclaredMethod 不看基类）
+    ///
+    /// 全部命中返回 0，有缺失返回 2。缺失就说明游戏更新改了混淆名，去改 GameSymbols.cs。
+    /// </summary>
     internal static class Program
     {
-        /// <summary>
-        /// 要检查的目标。左边是 interop 里的类型全名，右边是我们打补丁的方法名。
-        /// 游戏更新后混淆名会变，改这里 + Patches.cs 顶部的常量。
-        /// </summary>
-        private static readonly (string Type, string[] Methods)[] Targets =
-        {
-            ("pq", new[] { "gwf", "hby" }),             // ChangeHp ← 主 hook；hbs ← 恢复总入口
-            ("pm", new[] { "gwf", "get_bdwm" }),         // HeroHealth.ChangeHp + 它持有的 Hero
-            ("TaskbarHero.Monster", new[] { "gut" }),    // Monster.TakeDamage         ← 分类 hook
-            ("TaskbarHero.Hero", new[] { "gut" }),       // Hero.TakeDamage            ← 承伤面板的分类
-            ("ou", new[] { "gph" }),                     // 点击穿透开关（Win32 兜底方案用）
-            ("TaskbarHero.StageManager", new[] { "get_stageState", "get_b_StageStart" }), // 关卡分段信号
-            ("TaskbarHero.UI_Stage", new[] { "get_text_StageName" }),  // 关卡名 ← 分段依据 + 面板标题
-            ("TaskbarHero.Combat.PriestHeal", new[] { "njp", "get_bifa" }), // niu ← 治疗归因括号；bidv 是治疗**目标**，只用于诊断日志
-            ("TaskbarHero.Combat.PriestSanctuary", new[] { "njp" }),   // 圣域，和治愈区分
-            ("TaskbarHero.Combat.ActiveSkill", new[] { "AttackDamage", "get_bimr" }), // 技能级归因
-            ("TaskbarHero.Unit", new[] { "gto", "gtp", "gut", "gvm" }), // gun/gvg ← 恢复来源括号
-            ("TaskbarHero.Combat.Projectile.HunterExplosiveBolt", new[] { "AttackDamage" }), // 唯一覆写它的技能
-            ("oa", new[] { "gjf", "gjd" }),              // 本地化查询（译文 / 英文源）
-        };
-
-        private static readonly string[] TypeDumps =
-        {
-            "TaskbarHero.DamageInfo",
-            "TaskbarHero.Hero",
-        };
-
         private static int Main(string[] args)
         {
             Console.OutputEncoding = System.Text.Encoding.UTF8;
@@ -52,6 +36,11 @@ namespace TbhSigCheck
             if (args.Length > 0 && args[0] == "--members")
                 return Members(args.Skip(1).ToArray());
 
+            // --dump <类型全名...>
+            // 看 interop 把某个类型生成成了什么形态（值类型变 class、字段变属性……）。
+            if (args.Length > 0 && args[0] == "--dump")
+                return Dump(args.Skip(1).ToArray());
+
             // --simulate-update <输入dll> <输出dll>
             // 把对游戏混淆类型（全局命名空间、2~4 个小写字母）的引用改成不存在的名字，
             // 模拟"游戏更新后类型全被重命名"。产物替换 plugins 里的 DLL 后启动游戏，
@@ -59,38 +48,148 @@ namespace TbhSigCheck
             if (args.Length > 0 && args[0] == "--simulate-update")
                 return SimulateUpdate(args.Skip(1).ToArray());
 
-            var interopDir = args.FirstOrDefault() ?? DefaultInteropDir();
-            var path = Directory.Exists(interopDir)
-                ? Path.Combine(interopDir, "Assembly-CSharp.dll")
-                : interopDir; // 也允许直接传一个 dll 路径
+            var modPath = args.FirstOrDefault() ?? DefaultModDll();
+            var gamePath = Path.Combine(DefaultInteropDir(), "Assembly-CSharp.dll");
 
-            if (!File.Exists(path))
+            if (!File.Exists(modPath))
             {
-                Console.Error.WriteLine($"找不到 {path}");
-                Console.Error.WriteLine("先安装 BepInEx 并启动一次游戏，让它生成 interop 程序集。");
+                Console.Error.WriteLine($"找不到 {modPath}\n先构建：dotnet build src/TbhCombatTracker/TbhCombatTracker.csproj -c Release");
+                return 1;
+            }
+            if (!File.Exists(gamePath))
+            {
+                Console.Error.WriteLine($"找不到 {gamePath}\n先安装 BepInEx 并启动一次游戏，让它生成 interop 程序集。");
                 return 1;
             }
 
-            var asm = AssemblyDefinition.ReadAssembly(path, new ReaderParameters { ReadingMode = ReadingMode.Deferred });
-            var mod = asm.MainModule;
-            Console.WriteLine($"{path}\n程序集: {asm.Name.Name}   类型数: {mod.Types.Count}\n");
+            return CheckMod(modPath, gamePath);
+        }
+
+        // ------------------------------------------------------------------ 默认模式
+
+        private static int CheckMod(string modPath, string gamePath)
+        {
+            var game = AssemblyDefinition.ReadAssembly(gamePath, new ReaderParameters { ReadingMode = ReadingMode.Deferred }).MainModule;
+            var mod = AssemblyDefinition.ReadAssembly(modPath).MainModule;
+
+            Console.WriteLine($"Mod:  {modPath}\n游戏: {gamePath}   类型数 {game.Types.Count}\n");
 
             var missing = 0;
-            foreach (var (type, methods) in Targets)
-                missing += DumpMethods(mod, type, methods);
-            foreach (var t in TypeDumps)
-                missing += DumpType(mod, t);
 
+            // 1) 类型
+            Console.WriteLine("── 引用的游戏类型 ──");
+            var typeRefs = mod.GetTypeReferences().Where(IsGame).OrderBy(t => t.FullName).ToList();
+            foreach (var tr in typeRefs)
+            {
+                var t = game.GetType(tr.FullName);
+                if (t == null) { Console.WriteLine($"   !! {tr.FullName}   找不到"); missing++; }
+                else Console.WriteLine($"   ok {tr.FullName}");
+            }
+
+            // 2) 成员
+            Console.WriteLine("\n── 引用的游戏成员 ──");
+            var memberRefs = mod.GetMemberReferences()
+                .Where(m => m.DeclaringType != null && IsGame(m.DeclaringType))
+                .OrderBy(m => m.DeclaringType.FullName).ThenBy(m => m.Name)
+                .ToList();
+            foreach (var mr in memberRefs)
+            {
+                var owner = mr.DeclaringType.GetElementType().FullName;
+                var t = game.GetType(owner);
+                if (t == null) continue;   // 类型缺失已在上面计过
+
+                bool found;
+                string shown;
+                if (mr is MethodReference m)
+                {
+                    var hit = t.Methods.FirstOrDefault(x => x.Name == m.Name && x.Parameters.Count == m.Parameters.Count);
+                    found = hit != null;
+                    shown = hit != null ? Signature(hit) : $"{m.Name}({m.Parameters.Count} 参)";
+                }
+                else
+                {
+                    found = t.Fields.Any(f => f.Name == mr.Name);
+                    shown = mr.Name;
+                }
+
+                if (!found) { Console.WriteLine($"   !! {owner}.{shown}   找不到"); missing++; }
+                else Console.WriteLine($"   ok {owner}.{shown}");
+            }
+
+            // 3) [Hook] 常量
+            Console.WriteLine("\n── [Hook] 标注的方法名 ──");
+            var symbols = mod.Types.FirstOrDefault(t => t.Name == "GameSymbols");
+            if (symbols == null)
+            {
+                Console.WriteLine("   !! Mod 里没有 GameSymbols 类");
+                missing++;
+            }
+            else
+            {
+                foreach (var f in symbols.Fields.Where(f => f.HasConstant))
+                {
+                    var attr = f.CustomAttributes.FirstOrDefault(a => a.AttributeType.Name == "HookAttribute");
+                    if (attr == null) continue;
+
+                    var name = (string)f.Constant;
+                    var types = ((CustomAttributeArgument[])attr.ConstructorArguments[0].Value)
+                        .Select(a => (TypeReference)a.Value);
+
+                    foreach (var tr in types)
+                    {
+                        var t = game.GetType(tr.FullName);
+                        if (t == null) { Console.WriteLine($"   !! {f.Name} = \"{name}\"  于 {tr.FullName}：类型不存在"); missing++; continue; }
+
+                        var hits = t.Methods.Where(x => x.Name == name).ToList();
+                        if (hits.Count == 0)
+                        {
+                            // 只在基类上声明的话，AccessTools.DeclaredMethod 会拿不到
+                            Console.WriteLine($"   !! {f.Name} = \"{name}\"  未在 {tr.FullName} 上声明");
+                            missing++;
+                            continue;
+                        }
+                        foreach (var h in hits)
+                        {
+                            var kind = h.IsVirtual ? (h.IsNewSlot ? "virtual " : "override ") : "";
+                            Console.WriteLine($"   ok {f.Name} = \"{name}\"  {tr.FullName}: {kind}{Signature(h)}");
+                        }
+                    }
+                }
+            }
+
+            Console.WriteLine();
             if (missing > 0)
             {
                 Console.WriteLine($"!! {missing} 项没找到——混淆名很可能随游戏更新变了。");
-                Console.WriteLine("   重跑 pwsh tools/dump-symbols.ps1，按 docs/symbols.md 的识别特征重新定位。");
+                Console.WriteLine("   重跑 pwsh tools/dump-symbols.ps1，按 docs/symbols.md 的识别特征重新定位，只改 GameSymbols.cs。");
                 return 2;
             }
 
-            Console.WriteLine("全部命中。");
+            Console.WriteLine($"全部命中：{typeRefs.Count} 个类型、{memberRefs.Count} 个成员引用。");
             return 0;
         }
+
+        private static bool IsGame(TypeReference tr)
+        {
+            var scope = tr.GetElementType().Scope;
+            return scope != null && scope.Name.StartsWith("Assembly-CSharp", StringComparison.Ordinal);
+        }
+
+        /// <summary>从 sigcheck 自己的输出目录往上找仓库根，定位构建产物。</summary>
+        private static string DefaultModDll()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null)
+            {
+                var candidate = Path.Combine(dir.FullName, "src", "TbhCombatTracker", "bin", "Release", "TbhCombatTracker.dll");
+                if (File.Exists(Path.Combine(dir.FullName, "src", "TbhCombatTracker", "TbhCombatTracker.csproj")))
+                    return candidate;
+                dir = dir.Parent;
+            }
+            return "TbhCombatTracker.dll";
+        }
+
+        // ------------------------------------------------------------------ 其它模式
 
         private static int Members(string[] args)
         {
@@ -128,6 +227,41 @@ namespace TbhSigCheck
             }
 
             return 0;
+        }
+
+        private static int Dump(string[] args)
+        {
+            if (args.Length < 1)
+            {
+                Console.Error.WriteLine("用法: sigcheck --dump <类型全名...>");
+                return 1;
+            }
+
+            var path = Path.Combine(DefaultInteropDir(), "Assembly-CSharp.dll");
+            var mod = AssemblyDefinition.ReadAssembly(path, new ReaderParameters { ReadingMode = ReadingMode.Deferred }).MainModule;
+
+            var missing = 0;
+            foreach (var name in args)
+            {
+                Console.WriteLine($"── {name} ──");
+                var t = mod.GetType(name);
+                if (t == null)
+                {
+                    Console.WriteLine("   !! 找不到该类型\n");
+                    missing++;
+                    continue;
+                }
+
+                // Il2CppInterop 把非 blittable 的值类型生成成继承 Il2CppSystem.ValueType 的 class，
+                // 字段则一律变成属性。Harmony 补丁的参数类型要按这个来。
+                Console.WriteLine($"   isValueType={t.IsValueType}  base={t.BaseType?.FullName}");
+                foreach (var f in t.Fields.Where(f => !f.IsStatic).Take(24))
+                    Console.WriteLine($"     field  {Short(f.FieldType.FullName)} {f.Name}");
+                foreach (var p in t.Properties.Take(24))
+                    Console.WriteLine($"     prop   {Short(p.PropertyType.FullName)} {p.Name}");
+                Console.WriteLine();
+            }
+            return missing > 0 ? 2 : 0;
         }
 
         private static int SimulateUpdate(string[] args)
@@ -207,9 +341,11 @@ namespace TbhSigCheck
             return 0;
         }
 
+        // ------------------------------------------------------------------ 小工具
+
         private static string Signature(MethodDefinition m)
             => $"{Short(m.ReturnType.FullName)} {m.Name}(" +
-               string.Join(", ", m.Parameters.Select(p => Short(p.ParameterType.FullName))) + ")";
+               string.Join(", ", m.Parameters.Select(p => Short(p.ParameterType.FullName) + " " + p.Name)) + ")";
 
         private static string DefaultInteropDir()
         {
@@ -219,74 +355,6 @@ namespace TbhSigCheck
                 .FirstOrDefault(a => a.Key == "InteropDir");
             return meta?.Value ?? ".";
         }
-
-        private static TypeDefinition Find(ModuleDefinition mod, string fullName)
-            => mod.Types.FirstOrDefault(t => t.FullName == fullName);
-
-        private static int DumpMethods(ModuleDefinition mod, string typeName, string[] methods)
-        {
-            Console.WriteLine($"── {typeName} ──");
-
-            var t = Find(mod, typeName);
-            if (t == null)
-            {
-                Console.WriteLine("   !! 找不到该类型\n");
-                return 1;
-            }
-
-            Console.WriteLine($"   base={t.BaseType?.FullName}");
-
-            var missing = 0;
-            foreach (var name in methods)
-            {
-                var found = t.Methods.Where(m => m.Name == name).ToList();
-                if (found.Count == 0)
-                {
-                    // 只在基类上声明的话，AccessTools.DeclaredMethod 会拿不到
-                    Console.WriteLine($"   !! {name} 未在此类型上声明");
-                    missing++;
-                    continue;
-                }
-
-                foreach (var m in found)
-                {
-                    var ps = string.Join(", ", m.Parameters.Select(p =>
-                        $"{Short(p.ParameterType.FullName)} {p.Name}" +
-                        (p.HasDefault ? $" = {p.Constant ?? "null"}" : "")));
-                    var kind = m.IsVirtual ? (m.IsNewSlot ? "virtual " : "override ") : "";
-                    Console.WriteLine($"   {Vis(m)} {kind}{Short(m.ReturnType.FullName)} {m.Name}({ps})");
-                }
-            }
-
-            Console.WriteLine();
-            return missing;
-        }
-
-        private static int DumpType(ModuleDefinition mod, string typeName)
-        {
-            Console.WriteLine($"── {typeName} ──");
-
-            var t = Find(mod, typeName);
-            if (t == null)
-            {
-                Console.WriteLine("   !! 找不到该类型\n");
-                return 1;
-            }
-
-            // Il2CppInterop 把非 blittable 的值类型生成成继承 Il2CppSystem.ValueType 的 class，
-            // 字段则一律变成属性。Harmony 补丁的参数类型要按这个来。
-            Console.WriteLine($"   isValueType={t.IsValueType}  base={t.BaseType?.FullName}");
-            foreach (var f in t.Fields.Where(f => !f.IsStatic).Take(24))
-                Console.WriteLine($"     field  {Short(f.FieldType.FullName)} {f.Name}");
-            foreach (var p in t.Properties.Take(24))
-                Console.WriteLine($"     prop   {Short(p.PropertyType.FullName)} {p.Name}");
-
-            Console.WriteLine();
-            return 0;
-        }
-
-        private static string Vis(MethodDefinition m)
-            => m.IsPublic ? "public" : m.IsFamily ? "protected" : m.IsAssembly ? "internal" : "private";
 
         private static string Short(string full)
         {
