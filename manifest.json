@@ -1,15 +1,15 @@
 {
   "schema": 1,
   "latest": {
-    "version": "0.2.3",
+    "version": "0.2.4",
     "gameVersion": "1.2.4",
-    "url": "https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/v0.2.3",
-    "download": "https://github.com/DPS-Love/tbh-combat-tracker/releases/download/v0.2.3/TbhCombatTracker-v0.2.3.zip",
-    "sha256": "3aabd73d934e404a25db25dc19332f3f32ca627836509798bd4d1110b223b0e2",
+    "url": "https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/v0.2.4",
+    "download": "https://github.com/DPS-Love/tbh-combat-tracker/releases/download/v0.2.4/TbhCombatTracker-v0.2.4.zip",
+    "sha256": "d066a598f24ddeea39f116aeb69e5a0180cb36f2ea2b7245242f2c4c80ef3667",
     "critical": false,
     "notes": {
-      "zh": "适配游戏 1.2.4；新增更新检查与一键更新",
-      "en": "Game 1.2.4; update check and one-click update"
+      "zh": "游戏更新改名类型后窗口和更新提示仍会出现；符号与文案集中管理；修正启动时误触发游戏本地化初始化",
+      "en": "Panel and update notice survive renamed game types; centralized symbols and strings; no longer triggers the game's localization init at startup"
     }
   },
   "broken": [
