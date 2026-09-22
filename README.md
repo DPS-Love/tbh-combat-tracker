@@ -1,5 +1,7 @@
 # TBH Combat Tracker
 
+**简体中文** | [English](README.en.md)
+
 给 **TBH: Task Bar Hero** 用的战斗统计面板。横向悬浮窗，按英雄拆分输出 / 承伤 / 治疗，
 点开任一角色可看技能与伤害类型的饼图明细，按关卡自动分段，可导出 CSV。
 面板文本跟随游戏语言。

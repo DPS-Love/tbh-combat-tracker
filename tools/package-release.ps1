@@ -7,6 +7,7 @@
 
         BepInEx/plugins/TbhCombatTracker.dll
         安装说明.md
+        Install Guide.md
         LICENSE
 
     收包的人装好 BepInEx 之后，把这个 zip 解压覆盖到游戏根目录就完事——
@@ -86,8 +87,9 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 Copy-Item $dll (Join-Path $stage 'BepInEx\plugins\') -Force
 
-# README 就是面向玩家的安装说明；包里用中文名，收包的人一眼知道先看哪个
+# README 就是面向玩家的安装说明；包里用中文名，收包的人一眼知道先看哪个。英文版一并带上
 Copy-Item (Join-Path $root 'README.md') (Join-Path $stage '安装说明.md') -Force
+Copy-Item (Join-Path $root 'README.en.md') (Join-Path $stage 'Install Guide.md') -Force
 Copy-Item (Join-Path $root 'docs\anticheat.md') (Join-Path $stage '反作弊说明.md') -Force
 
 $license = Join-Path $root 'LICENSE'
@@ -178,6 +180,7 @@ Write-Host @"
 包内结构：
   BepInEx/plugins/TbhCombatTracker.dll
   安装说明.md
+  Install Guide.md
   反作弊说明.md
   LICENSE
 

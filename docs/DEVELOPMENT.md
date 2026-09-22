@@ -238,7 +238,7 @@ pwsh tools/test-manifest.ps1 -Scenario install -Apply   # 生成 build/test-mani
 pwsh tools/package-release.ps1                 # 只打包：build/release/TbhCombatTracker-vX.Y.Z.zip
 ```
 
-包内：`BepInEx/plugins/TbhCombatTracker.dll`、`安装说明.md`（即 README）、`反作弊说明.md`、`LICENSE`。
+包内：`BepInEx/plugins/TbhCombatTracker.dll`、`安装说明.md`（即 README）、`Install Guide.md`（即 README.en.md）、`反作弊说明.md`、`LICENSE`。
 **不打包 BepInEx 本体**（LGPL 独立项目，让用户自己去官方构建站拿）。
 
 发新版本：
