@@ -1,12 +1,13 @@
 # Task Bar Hero — 逆向符号表
 
 > 来源：Il2CppDumper v6.7.46 对 `GameAssembly.dll` + `global-metadata.dat` 的 dump
-> 游戏版本：**1.2.4**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
+> 游戏版本：**1.2.6**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
 >
 > 1.01.05 → 1.2.0 混淆名**全部变了**，重定位过程见第 11 节；
 > 1.2.0 → 1.2.2 只有**字段名整体平移**，见第 12 节；
-> 1.2.2 → 1.2.4 类型名和方法名又都动了，见第 13 节。
-> **正文里的名字是 1.2.2 的**，第 13 节的对照表才是当前值——正文不再逐版改写，
+> 1.2.2 → 1.2.4 类型名和方法名又都动了，见第 13 节；
+> 1.2.4 → 1.2.6 又全动了一遍，见第 14 节。
+> **正文里的名字是 1.2.2 的**，第 14 节的对照表才是当前值——正文不再逐版改写，
 > 结构（谁是转发器、谁覆写了谁、偏移量）才是这份文档的价值。
 
 ## 0. 混淆规律（重要）
@@ -556,3 +557,49 @@ pl.bdvr 改名 → HealFunnel_Pre 里一行调试日志读它 → MissingMethodE
 **没变的**：`Hero.cache` / `ActiveSkill.skillCache` / `AttackDamage` / `UnitHealthController` /
 `StageManager.stageState` / `b_StageStart` / `UI_Stage.text_StageName` /
 `HeroInfoData.*` / `SkillInfoData.*`——全是没被混淆的名字。它们是每次重定位的起点。
+
+## 14. 1.2.4 → 1.2.6 重定位记录
+
+2026-09-22 的更新（1.2.5 和 1.2.6 热修复一起到的）。类型名、方法名、字段名全动了，
+判据照旧（状态机名 → 签名 → RVA 关系 → 调用点），**偏移量一个没变**。
+
+| 1.2.4 | 1.2.6 | 判据 |
+|---|---|---|
+| `pq` UnitHealth | `pp` | `<HealthRegenAsync>d__20` 宿主；`Unit.UnitHealthController` 的类型。⚠ `pp` 是 1.2.0 / 1.2.2 用过的名字，转了一圈又回来了 |
+| `pm` / `po` | `pl` / `pn` | `: pp` + `private Hero befe` / `private Monster befu`（都在 0x58）；只有 `pl` 覆写 ChangeHp |
+| `bgm` IDamageable | `bha` | `Unit : MonoBehaviour, bha` |
+| `wg` HeroCache | `wj` | `Hero.cache` 的类型 |
+| `wl` SkillCache | `wo` | `ActiveSkill.skillCache` 的类型。⚠ **`wl` 这个名字还在，但已经是别的类**——sigcheck 只报字段找不到，类型本身"还在" |
+| `oa` 本地化 | `oa` | 没改名；方法名整体平移 `gjd…gji` → `gkd…gki`，顺序不变 |
+| `ou` 窗口控制 | `ou` | 没改名；`ot` 仍是 P/Invoke 集合 |
+| `bgt` 治疗场 | `bhh` | `PriestSanctuary` 的 0x80 字段类型 |
+| `gwf` ChangeHp | `gxf` | `(float, Unit)` 在 `pp` 上唯一；`pl` 覆写 |
+| `gwa` 血条初始化 | `gxa` | `(Unit, Vector3, float)` |
+| `gut` TakeDamage | `gvu` | `(DamageInfo, bool)`：Unit `0xCE1430` / Hero `0xCC2C90` / Monster `0xCDDA00` 互异。⚠ **`Hero.gut` 这个名字还在，但成了 `bool gut()`**——Harmony 报 "Parameter a not found"，被 TryPatch 接住 |
+| `ehg` 转发器 | `eid` | Hero / Monster 共用 `0xCBFC50`，Unit 上是 abstract；仍不可挂 |
+| `gvm` 击杀 | `gwm` | Unit 上唯一的 `bool (Unit)`；调恢复入口 1 次 |
+| `hby` 恢复入口 | `hcy` | `(float, bool, bool)` 这回在 `pp` 上只剩一个候选（类从 39 个方法缩到 32 个）；调用点 2 处来自 `Unit.gvu`、1 处来自 `Unit.gwm`，分布与历次一致 |
+| `gph` 点击穿透 | `gql` | `ou` 五个 `(bool)` 里唯一被 `WindowManager.Update()` 调用的；`gqs` 是另一个开关（8 处）|
+| `njp` 技能执行 | `nrx` | PriestHeal `0xBA67A0` / Sanctuary `0xBA6F70` 各自覆写、RVA 互异；`njq → nry`、`nla → nti` 也一一对应 |
+| `gjf` / `gjd` | `gkf` / `gkd` | 按 dump 顺序（第三个 / 第一个）|
+| `pm.bdwm` | `pl.befe` | 0x58 |
+| `wg.bgiq` | `wj.bgtb` | 0x30 |
+| `wl.bgkf` | `wo.bgur` | 0x10 |
+| `ActiveSkill.bimr` | `.bizb` | 0x38 |
+| `HeroActiveSkill.bidf` | `.bipo` | 0x78 |
+| `PriestHeal.bifa` | `.birj` | 0x80（治疗目标）|
+| `PriestSanctuary.bifc` | `.birl` | 0x80，类型 `bhh` |
+
+三处**名字复用 / 回收**：`pp`（老名字回来了）、`wl`（名字还在、类不同）、`Hero.gut`（名字还在、签名不同）。
+`hcy` 的机器码全局唯一（`safe-hooks.py`）；`pp.hcx` / `heu(Unit, float, bool, bool)` 仍是共用一段机器码的带来源变体，不挂。
+
+**没变的**：同第 13 节，外加 `AttackDamage` 两处的机器码仍全局唯一。
+
+**行为变化**：每秒自然回复不再经过恢复总入口 `hcy`——1.2.4 里它是 `(false, false)` 进漏斗，1.2.6 里直接到 `ChangeHp`。
+`HeroHealth_HpDelta_Post` 对"没在漏斗里"的正数本来就按自然回复兜底，所以分类结果不变；只是开着 `HealingDebug`
+会看到一条一次性的「回血未经过 gxq 漏斗 amount=25.7 kind=自然回复」，这是预期内的，不是漏。
+实测 150 秒：战斗回复 297 次（`(true,false)`）、治愈 27 次（`(true,true)`，施法者归因正确）、三名英雄职业与译名全部命中。
+
+> 顺带记一笔：更新当天有"启动卡在加载界面"的报告。三组对照（不加载 BepInEx / 只有 BepInEx / 完整 Mod）
+> 在半小时后都能正常进入，v0.2.4 原样也能进——卡住的是游戏在 `InventoryInit` 之后等一个外部条件，
+> 与 Mod 无关。

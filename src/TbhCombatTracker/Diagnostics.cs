@@ -45,20 +45,21 @@ namespace TbhCombatTracker
         /// </summary>
         private static readonly HashSet<string> SafeToPatch = new HashSet<string>
         {
-            "pj.hv", "pj.opn", "pj.gxk", "pj.gxr", "pj.gsd", "pj.gsh",
-            "pj.esh", "pj.gse", "pj.gxi", "pj.gxn", "pj.mma", "pj.ibj",
-            "pj.cpg", "pj.fva", "pj.gxl", "pj.liv", "pj.err", "pj.cds",
-            "pj.gxj", "pj.gxq", "pj.ibb", "pj.gsi",
-            "ph.gsd", "ph.gsh",
-            "pf.gsh", "pf.obo", "pf.gse", "pf.iyf", "pf.gsi", "pf.gsf",
-            "pf.jih", "pf.gsd",
-            "Monster.gpz", "Monster.gqa", "Monster.gqt", "Monster.gqu", "Monster.gsq", "Monster.gsr",
-            "Monster.gss", "Monster.gst", "Monster.gsu", "Monster.grd", "Monster.grt", "Monster.gsv",
-            "Monster.gsw", "Monster.gsx", "Monster.gsy",
-            // 治疗侧：牧师主动治疗、技能基类、治疗场（bfj 带 HealingAsync 状态机）
-            "PriestHeal.mti", "PriestHeal.mtj",
-            "HeroActiveSkill.mtu", "HeroActiveSkill.mun",
-            "bfj.jie", "bfj.klt", "bfj.nhd", "bfj.nhg",
+            // 游戏 1.2.6 —— python tools/safe-hooks.py --csharp --types pp pn pl Monster PriestHeal HeroActiveSkill bhh
+            "pp.hcs", "pp.hcw", "pp.doi", "pp.gxf", "pp.gen", "pp.gxe",
+            "pp.oks", "pp.hcv", "pp.hct", "pp.hcy", "pp.hcq", "pp.hcr",
+            "pp.fuz", "pp.hcz", "pp.iar", "pp.gxb", "pp.gxa",
+            "pn.gxa", "pn.gxe",
+            "pl.ift", "pl.gxe", "pl.fbb", "pl.lzt", "pl.gxb", "pl.gxc",
+            "pl.gxf", "pl.nam", "pl.gxa",
+            "Monster.guo", "Monster.gup", "Monster.gvl", "Monster.gxn", "Monster.gxo", "Monster.gxp",
+            "Monster.gxq", "Monster.gxr", "Monster.gxs", "Monster.gxt", "Monster.gvu", "Monster.gwm",
+            "Monster.gxu", "Monster.gxv", "Monster.gxw", "Monster.gxx",
+            "PriestHeal.nrx", "PriestHeal.nry",
+            "HeroActiveSkill.nsj", "HeroActiveSkill.ntc",
+            "bhh.ogt", "bhh.ogx", "bhh.onz", "bhh.kok", "bhh.ogz", "bhh.kjw",
+            "bhh.otz", "bhh.gdo", "bhh.ogu", "bhh.ogw", "bhh.ogy", "bhh.fcu",
+            "bhh.hcl", "bhh.mgd", "bhh.cak",
         };
 
         private static readonly Dictionary<string, int> Counts = new Dictionary<string, int>();

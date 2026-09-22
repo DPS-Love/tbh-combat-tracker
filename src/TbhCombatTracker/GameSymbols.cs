@@ -33,12 +33,12 @@ global using GHeroInfoData = TaskbarHero.Data.HeroInfoData;
 global using GSkillInfoData = TaskbarHero.Data.SkillInfoData;
 
 // 混淆的（全局命名空间，两三个小写字母）——每次更新都要重新定位
-global using GUnitHealth = global::pq;      // UnitHealth     ← 编译器生成的 <HealthRegenAsync>d__20 状态机的宿主类；Unit.UnitHealthController 的类型
-global using GHeroHealth = global::pm;      // HeroHealth     ← : GUnitHealth，唯一的 private Hero 字段，且覆写了 ChangeHp
-global using GMonsterHealth = global::po;   // MonsterHealth  ← : GUnitHealth，唯一的 private Monster 字段，不覆写 ChangeHp
+global using GUnitHealth = global::pp;      // UnitHealth     ← 编译器生成的 <HealthRegenAsync>d__20 状态机的宿主类；Unit.UnitHealthController 的类型
+global using GHeroHealth = global::pl;      // HeroHealth     ← : GUnitHealth，唯一的 private Hero 字段，且覆写了 ChangeHp
+global using GMonsterHealth = global::pn;   // MonsterHealth  ← : GUnitHealth，唯一的 private Monster 字段，不覆写 ChangeHp
 global using GWindowNative = global::ou;    // 窗口控制       ← 调 SetWindowLong / GetWindowLong 的那个类（不是放 extern 的那个）
 global using GLoc = global::oa;             // 本地化包装     ← 五个 [Extension] static string 方法的静态类
-global using GHealField = global::bgt;      // 治疗场         ← PriestSanctuary 偏移 0x80 的字段类型
+global using GHealField = global::bhh;      // 治疗场         ← PriestSanctuary 偏移 0x80 的字段类型
 
 using System;
 
@@ -63,30 +63,30 @@ namespace TbhCombatTracker
         /// <summary>UnitHealth.ChangeHp(float delta, Unit source)：负 = 伤害，正 = 治疗。
         /// 判据：(float, Unit) 这个签名在 UnitHealth 上唯一。HeroHealth 覆写了它，要单独挂。</summary>
         [Hook(typeof(GUnitHealth), typeof(GHeroHealth))]
-        public const string ChangeHp = "gwf";
+        public const string ChangeHp = "gxf";
 
         /// <summary>TakeDamage(DamageInfo, bool)。判据：Hero / Monster 各自覆写且 RVA 互异。
         /// 同签名还有一个 Hero / Monster 共用同一段机器码的——那是 IDamageable 的转发器，绝不能挂。</summary>
         [Hook(typeof(GMonster), typeof(GHero), typeof(GUnit))]
-        public const string TakeDamage = "gut";
+        public const string TakeDamage = "gvu";
 
         /// <summary>Unit 的击杀方法 bool (Unit)。判据：唯一既收 Unit 参数、又调用恢复总入口的方法。</summary>
         [Hook(typeof(GUnit))]
-        public const string OnKilled = "gvm";
+        public const string OnKilled = "gwm";
 
         /// <summary>所有生命恢复的总入口 (float, bool, bool)。判据：同签名的几个候选里唯一有调用点的，
         /// 且其中 2 处来自 TakeDamage、1 处来自 OnKilled——历次更新这个分布都没变。</summary>
         [Hook(typeof(GUnitHealth))]
-        public const string HealFunnel = "hby";
+        public const string HealFunnel = "hcy";
 
         /// <summary>窗口点击穿透开关 (bool)。判据：GWindowNative 的几个 (bool) 方法里唯一被
         /// WindowManager.Update() 调用的那个。</summary>
         [Hook(typeof(GWindowNative))]
-        public const string ClickThrough = "gph";
+        public const string ClickThrough = "gql";
 
         /// <summary>技能执行入口 override void ()。判据：PriestHeal / PriestSanctuary 各自覆写、RVA 互异。</summary>
         [Hook(typeof(GPriestHeal), typeof(GPriestSanctuary))]
-        public const string SkillExecute = "njp";
+        public const string SkillExecute = "nrx";
 
         /// <summary>每个技能生成自己 DamageInfo 的惰性工厂。名字没被混淆。</summary>
         [Hook(typeof(GActiveSkill), typeof(GExplosiveBolt))]
@@ -96,26 +96,26 @@ namespace TbhCombatTracker
         // 全部允许传 null，返回 null。混淆的成员名只出现在这几行的右边。
 
         /// <summary>HeroHealth 服务的那个 Hero。判据：HeroHealth 上唯一的 Hero 字段（偏移 0x58）。</summary>
-        public static GHero HeroOf(GHeroHealth health) => health?.bdwm;
+        public static GHero HeroOf(GHeroHealth health) => health?.befe;
 
         /// <summary>技能的施法者。判据：ActiveSkill 偏移 0x38 的 Unit 字段（HeroActiveSkill 0x78 还有一份 Hero，同一个人）。</summary>
-        public static GUnit OwnerOf(GActiveSkill skill) => skill?.bimr;
+        public static GUnit OwnerOf(GActiveSkill skill) => skill?.bizb;
 
         /// <summary>「治愈」这次的目标。判据：PriestHeal 偏移 0x80 的 Hero 字段——施法者在基类里已有两份，
         /// 子类这份只能是目标；PriestSanctuary 同一偏移放的是治疗场对象。**不是施法者，别拿去归因。**</summary>
-        public static GHero HealTargetOf(GPriestHeal skill) => skill?.bifa;
+        public static GHero HealTargetOf(GPriestHeal skill) => skill?.birj;
 
         /// <summary>英雄的静态数据（职业、名字键）。判据：Hero.cache（未混淆）的类型上唯一的 HeroInfoData 字段（0x30）。</summary>
-        public static GHeroInfoData HeroInfoOf(GHero hero) => hero?.cache?.bgiq;
+        public static GHeroInfoData HeroInfoOf(GHero hero) => hero?.cache?.bgtb;
 
         /// <summary>技能的静态数据（名字键）。判据：ActiveSkill.skillCache（未混淆）的类型上唯一的 SkillInfoData 字段（0x10）。</summary>
-        public static GSkillInfoData SkillInfoOf(GActiveSkill skill) => skill?.skillCache?.bgkf;
+        public static GSkillInfoData SkillInfoOf(GActiveSkill skill) => skill?.skillCache?.bgur;
 
         /// <summary>查本地化表，返回玩家当前语言。判据：GLoc 五个方法在 dump 里的顺序
         /// 对应 1.01.05 的 gft/gfu/gfv/gfw/gfx，第三个是走本地化表的那个。</summary>
-        public static string Localized(string key) => GLoc.gjf(key);
+        public static string Localized(string key) => GLoc.gkf(key);
 
         /// <summary>英文源文本，只作兜底。判据：五个方法里的第一个。</summary>
-        public static string SourceText(string key) => GLoc.gjd(key);
+        public static string SourceText(string key) => GLoc.gkd(key);
     }
 }
