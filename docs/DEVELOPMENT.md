@@ -245,8 +245,10 @@ pwsh tools/package-release.ps1                 # 只打包：build/release/TbhCo
 
 ```powershell
 # 1. 改 csproj 的 <Version>，提交
-# 2. 打标签；CI 核对版本号并建草稿 Release
-git tag v0.2.3 && git push origin main v0.2.3
+# 2. 打标签。Release 标题固定为标签名 vX.Y.Z；**标签注释就是 Release 说明**（中英各写一段，
+#    不写注释的轻量标签则用提交信息代替）。推上去后 CI 核对版本号并建草稿 Release
+git tag -a v0.2.5 -m "适配游戏 1.2.6" -m "- 要点…" -m "Aligned with game 1.2.6" -m "- Notes…"
+git push origin main v0.2.5
 # 3. 本机补产物并发布；顺带把 manifest.json 更新成这个版本、推送、清 jsDelivr 缓存
 pwsh tools/package-release.ps1 -Upload -NotesZh "…" -NotesEn "…" [-Critical]
 ```

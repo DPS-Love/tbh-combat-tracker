@@ -16,6 +16,7 @@
     让用户自己去官方构建站拿更稳妥，也免得我们变成它的分发方。
 
     -Upload 会把包传到同名标签的 GitHub Release 上并发布它。
+    Release 标题固定为标签名 vX.Y.Z，说明取自标签注释（轻量标签则取提交信息）。
     CI 编译不了这个项目（要引用从游戏本体生成的 Il2CppInterop 程序集），
     所以默认流程是：打标签 -> CI 建草稿 Release -> 在装了游戏的机器上跑这个脚本补产物。
 
@@ -112,7 +113,8 @@ if ($Upload) {
     # 标签还没有对应的 Release 就现建一个（正常流程里 CI 已经建好草稿了）
     gh release view $tag *> $null
     if ($LASTEXITCODE -ne 0) {
-        gh release create $tag --draft --generate-notes --title "TBH Combat Tracker $tag"
+        # 标题就是标签名，说明取自标签注释（轻量标签则取提交信息）——和 CI 的 release.yml 一致
+        gh release create $tag --draft --title $tag --notes-from-tag
         if ($LASTEXITCODE -ne 0) { Write-Error "建 Release $tag 失败。标签推上去了吗？" }
     }
 

@@ -97,6 +97,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '编译失败' }
           ./tools/package-release.ps1 -SkipBuild
 
+      # Release 标题就是标签名（vX.Y.Z）——列表里一眼能看到版本，"TBH Combat Tracker vX.Y.Z" 会被截断成一串同名项。
+      # 说明取自标签注释；轻量标签则取被标记提交的信息（git 的 %(contents) 两种都覆盖），末尾附上与上一个标签的对比链接。
+      # 不用 --generate-notes：它按 PR 生成，这个仓库没有 PR，产出的正文只有一条对比链接，等于没有说明。
       - name: 发布
         shell: pwsh
         env:
@@ -105,10 +108,17 @@ jobs:
           $tag = '${{ steps.ver.outputs.tag }}'
           $zip = "build/release/TbhCombatTracker-$tag.zip"
 
+          $notes = ((git tag -l --format='%(contents)' $tag) -join "`n") -split "`n" |
+            Where-Object { $_ -notmatch '^(Co-Authored-By|Signed-off-by):' }
+          $notes = ($notes -join "`n").TrimEnd()
+          $prev = try { git describe --tags --abbrev=0 "$tag^" 2>$null } catch { $null }
+          if ($prev) { $notes += "`n`n**Full Changelog**: https://github.com/${{ github.repository }}/compare/$prev...$tag" }
+          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
+
           if (Test-Path $zip) {
-            gh release create $tag $zip --generate-notes --title "TBH Combat Tracker $tag"
+            gh release create $tag $zip --title $tag --notes-file release-notes.md
             Write-Host "已发布，产物 $zip"
           } else {
-            gh release create $tag --draft --generate-notes --title "TBH Combat Tracker $tag"
+            gh release create $tag --draft --title $tag --notes-file release-notes.md
             Write-Host '::notice::建的是草稿，还没有产物。在装了游戏的机器上跑 pwsh tools/package-release.ps1 -Upload 补产物并发布。'
           }
