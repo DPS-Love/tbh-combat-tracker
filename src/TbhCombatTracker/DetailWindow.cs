@@ -22,13 +22,15 @@ namespace TbhCombatTracker
         private const float RowH = 15f;
         private const float TabH = 18f;
 
-        internal enum Dimension { Skill, DamageType, Attribute, HealKind }
-
         /// <summary>当前展开的来源实例 id；0 表示没开。</summary>
         private static int _targetId;
+        /// <summary>来源的名字。翻到它没数据的那一段时窗口标题还要用。</summary>
+        private static string _targetName;
         private static TrackerView _targetView;
         private static Dimension _dim = Dimension.Skill;
         private static Rect _rect = new Rect(40f, 160f, 330f, 210f);
+
+        private static readonly PieChart Pie = new PieChart();
 
         private static GUIStyle _title, _tab, _legend, _legendRight, _center, _sub;
         private static Texture2D _white;
@@ -39,13 +41,14 @@ namespace TbhCombatTracker
         /// <summary>明细窗口的 GUI 矩形，给射线靶同步用——不然点击会穿透过去。</summary>
         public static Rect CurrentRect => _rect;
 
-        public static void Open(int sourceId, TrackerView view)
+        public static void Open(int sourceId, TrackerView view, string name)
         {
             // 再点一次同一张卡片就关掉，符合直觉
             if (_targetId == sourceId && _targetView == view) { Close(); return; }
 
             _targetId = sourceId;
             _targetView = view;
+            _targetName = name;
             _dim = view == TrackerView.Healing ? Dimension.HealKind : Dimension.Skill;
         }
 
@@ -57,16 +60,14 @@ namespace TbhCombatTracker
 
             EnsureStyles();
 
+            // 跟着实时的当前段走。刚切段、这个角色在新的一段里还没出手时显示空状态，
+            // 不自动关窗——几秒后数据就回来了；已经结束的段在主面板里看
             var stats = Find();
-            if (stats == null)
-            {
-                // 战斗切段后旧数据没了，别留个空窗口在那
-                Close();
-                return;
-            }
+            if (stats != null) _targetName = Strings.SourceName(stats);
 
             _rect = GUI.Window(WindowId, _rect, (GUI.WindowFunction)DrawBody,
-                               Strings.DetailTitle(stats.Name, Strings.ViewLabel(_targetView)));
+                               Strings.DetailTitle(_targetName ?? "?", Strings.ViewLabel(_targetView),
+                                                   Strings.EncounterTitle(DamageTracker.Current)));
         }
 
         private static SourceStats Find()
@@ -80,7 +81,6 @@ namespace TbhCombatTracker
             try
             {
                 var stats = Find();
-                if (stats == null) { Close(); return; }
 
                 var top = Pad + 6f;
 
@@ -104,14 +104,21 @@ namespace TbhCombatTracker
 
                 top += TabH + 6f;
 
+                if (stats == null)
+                {
+                    Shadowed(new Rect(Pad, top, _rect.width - Pad * 2f, RowH), Strings.NoDataInSegment, _legend);
+                    GUI.DragWindow();
+                    return;
+                }
+
                 // ---- 数据 ----
-                var slices = BuildSlices(stats);
+                var slices = Breakdown.Slices(Breakdown.Of(stats, _dim));
                 double total = 0;
                 foreach (var s in slices) total += s.Value;
 
                 // ---- 环形图 ----
                 var pieRect = new Rect(Pad, top, PieSize, PieSize);
-                var tex = PieChart.Get(slices, (int)PieSize);
+                var tex = Pie.Get(slices, (int)PieSize);
                 GUI.DrawTexture(pieRect, tex);
 
                 // 环心放总计
@@ -174,46 +181,6 @@ namespace TbhCombatTracker
                 GUI.color = prev;
             }
             if (GUI.Button(r, label, _tab)) _dim = dim;
-        }
-
-        private static List<Slice> BuildSlices(SourceStats s)
-        {
-            var list = new List<Slice>();
-
-            switch (_dim)
-            {
-                case Dimension.Skill:
-                    foreach (var kv in s.BySkill.OrderByDescending(k => k.Value.Total))
-                        list.Add(new Slice { Label = kv.Key, Value = kv.Value.Total });
-                    break;
-
-                case Dimension.DamageType:
-                    for (var i = 0; i < s.ByType.Length; i++)
-                        if (s.ByType[i] > 0d)
-                            list.Add(new Slice { Label = DamageTracker.TypeName(i), Value = s.ByType[i] });
-                    break;
-
-                case Dimension.Attribute:
-                    for (var i = 0; i < s.ByAttribute.Length; i++)
-                        if (s.ByAttribute[i] > 0d)
-                            list.Add(new Slice { Label = DamageTracker.AttributeName(i), Value = s.ByAttribute[i] });
-                    break;
-
-                case Dimension.HealKind:
-                    for (var i = 0; i < s.ByHealKind.Length; i++)
-                        if (s.ByHealKind[i] > 0d)
-                            list.Add(new Slice { Label = Healing.KindName(i), Value = s.ByHealKind[i] });
-                    break;
-            }
-
-            list.Sort((a, b) => b.Value.CompareTo(a.Value));
-            for (var i = 0; i < list.Count; i++)
-            {
-                var sl = list[i];
-                sl.Color = PieChart.ColorAt(i);
-                list[i] = sl;
-            }
-            return list;
         }
 
         private static void Shadowed(Rect r, string text, GUIStyle style)

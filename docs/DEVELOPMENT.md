@@ -2,7 +2,7 @@
 
 面向想改代码、或在游戏更新后重新对齐符号的人。玩家看仓库根目录的 README 即可。
 
-当前对齐：游戏 **1.2.6** / BepInEx **6.0.0-be.785** / .NET SDK 8。
+当前对齐：游戏 **1.2.8** / BepInEx **6.0.0-be.785** / .NET SDK 8。
 
 ---
 
@@ -70,6 +70,21 @@ Prefix/Finalizer 夹住外层，在内层把信息拼起来。攻击者归因靠
 
 这些方法在游戏里都是三字母混淆名，每次更新都会变。当前值和识别方法见 [symbols.md](symbols.md)。
 
+### 事件、日志与解析
+
+hook 不直接改统计数字，而是产出**战斗事件**（伤害、承伤、治疗、关卡信号、手动重置），每个事件同时交给两处：
+
+```
+hook / StageWatcher ──► DamageTracker ──┬─► CombatParser（本局）──► 浮窗 / 主面板
+                                         └─► EventLogWriter ──► logs\tbh-*.tbhlog.gz
+导入： EventLogReader ──► CombatParser（新会话）──► 主面板
+```
+
+分段（关卡名 / `b_StageStart` / 空闲时间 / 手动重置）、归因、分桶全在 `CombatParser` 里。
+实时和导入用的是**同一个解析器**，所以面板上的数字和日后导入同一份日志的数字逐项一致；
+解析器加了新维度或改了规则，旧日志重新导入也按新的算。事件里只装原始事实，判定依据
+（比如治疗的两个标志位和所在括号）一并记下。格式与兼容规则见 [eventlog.md](eventlog.md)。
+
 ### 代码分工
 
 | 文件 | 职责 |
@@ -77,11 +92,14 @@ Prefix/Finalizer 夹住外层，在内层把信息拼起来。攻击者归因靠
 | `GameSymbols.cs` | **所有混淆名**：类型别名、Harmony 方法名、字段访问器。游戏更新后只改这里 |
 | `Strings.cs` | **所有由我们提供的文案**（中 / 英），界面模块不写字面量 |
 | `Patches.cs` | hook 逻辑：挂哪些方法、Prefix/Postfix 各拿什么。不含混淆名 |
-| `DamageTracker.cs` | 聚合统计、战斗切分、CSV 导出 |
+| `DamageTracker.cs` | 实时统计入口：把 hook 拿到的数据变成事件，交给本局的解析器和日志；CSV 导出 |
+| `CombatModel.cs` / `CombatEvent.cs` / `EventLogFormat.cs` / `EventLogReader.cs` / `CombatParser.cs` | **解析器**（纯 C#）：统计模型、事件、日志格式、读日志、分段与聚合 |
+| `EventLogWriter.cs` | 后台线程写本局日志（gzip，每 2 秒同步刷新，退出时写结束标记） |
 | `Healing.cs` / `SkillTracker.cs` | 恢复来源分类、技能级归因的上下文 |
-| `StageWatcher.cs` | 关卡分段信号 |
+| `StageWatcher.cs` | 读关卡信号（关卡名、开始标志、波次）上报成事件；分段规则在解析器里 |
 | `Localize.cs` | 读游戏本地化表（英雄名、技能名、元素属性） |
-| `Overlay.cs` / `DetailWindow.cs` / `PieChart.cs` | IMGUI 面板、角色明细、饼图 |
+| `Overlay.cs` / `DetailWindow.cs` / `PieChart.cs` | IMGUI 浮窗、角色明细、饼图 |
+| `MainPanel.cs` / `LineChart.cs` / `Breakdown.cs` | 战斗记录主面板（分段列表、表格、曲线、导入）、时间曲线、拆分表 |
 | `UpdateChecker.cs` / `UpdateBanner.cs` | 更新检查、一键更新、横幅 |
 | `RaycastAnchor.cs` / `ClickThrough.cs` | 解除窗口点击穿透（射线靶为主，Win32 兜底） |
 | `Plugin.cs` / `Mod.cs` / `TrackerBehaviour.cs` | 入口、加载器门面、注入 IL2CPP 域的 MonoBehaviour |
@@ -89,7 +107,7 @@ Prefix/Finalizer 夹住外层，在内层把信息拼起来。攻击者归因靠
 
 ---
 
-## 四条硬规则
+## 五条硬规则
 
 ### 补丁边界：异常一个都不许漏
 
@@ -147,6 +165,18 @@ dotnet run --project tools/sigcheck/sigcheck.csproj -- --stripped UnityEngine.IM
 pwsh tools/simulate-update.ps1            # 把 DLL 里的游戏类型引用改成不存在的名字后部署
 # 启动游戏：窗口必须出现，横幅显示「本版 Mod 与当前游戏不匹配」，日志里各 hook 报"类型不存在"
 pwsh tools/simulate-update.ps1 -Restore   # 重新构建，换回真 DLL
+```
+
+### 解析器保持纯 C#
+
+`CombatModel` / `CombatEvent` / `EventLogFormat` / `EventLogReader` / `CombatParser` 不能引用 UnityEngine、
+BepInEx、游戏类型，也不碰 `Mod.Config` / `Strings`：导入日志时它们在后台线程跑，碰了 Il2Cpp 对象就是崩溃；
+离线工具和测试也靠这一点。显示用的文字（段标题、"未知来源"）在界面层用 `Strings` 拼。
+
+`tools/logcheck` 单独编译这几个文件，谁引用了 Unity 那边就编译不过。改了解析器就跑一遍它的合成测试：
+
+```powershell
+dotnet run --project tools/logcheck -- --test
 ```
 
 ---
@@ -284,5 +314,6 @@ interop 程序集，那是游戏代码的派生物，不能进公开仓库，run
 | `tools/check-guards.py` | 补丁方法异常防护检查（构建前自动跑） |
 | `tools/test-manifest.ps1` | 生成本地测试清单并写进 cfg，发布前看横幅效果 |
 | `tools/simulate-update.ps1` | 模拟游戏更新改名类型，验证窗口和横幅仍会出现 |
+| `tools/logcheck/` | 离线查看战斗日志（会话概要、事件密度、每段统计）；`--test` 跑解析器的合成测试 |
 | `tools/dump-localization.py` | 离线解包 Addressables 里的本地化字符串表 |
 | `tools/package-release.ps1` | 打包 / 上传 Release / 更新 manifest |

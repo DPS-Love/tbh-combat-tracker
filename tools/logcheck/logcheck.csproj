@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    离线查看 / 校验战斗日志，同时是解析器的测试台。用法见 Program.cs 顶部和 docs/eventlog.md：
+      传一个日志文件路径：打印会话概要和每段统计
+      传 test 开关：跑解析器的合成测试
+
+    它直接编译插件里的那几个"纯 C#"文件。那几个文件要是引用了 UnityEngine、BepInEx
+    或游戏类型，这里就编译不过。这是解析器必须保持纯净（导入时要在后台线程跑、
+    以后要能在游戏外复用）的一道硬检查。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>LogCheck</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/TbhCombatTracker/CombatModel.cs" Link="Parser/CombatModel.cs" />
+    <Compile Include="../../src/TbhCombatTracker/CombatEvent.cs" Link="Parser/CombatEvent.cs" />
+    <Compile Include="../../src/TbhCombatTracker/EventLogFormat.cs" Link="Parser/EventLogFormat.cs" />
+    <Compile Include="../../src/TbhCombatTracker/EventLogReader.cs" Link="Parser/EventLogReader.cs" />
+    <Compile Include="../../src/TbhCombatTracker/CombatParser.cs" Link="Parser/CombatParser.cs" />
+  </ItemGroup>
+
+</Project>

@@ -45,21 +45,22 @@ namespace TbhCombatTracker
         /// </summary>
         private static readonly HashSet<string> SafeToPatch = new HashSet<string>
         {
-            // 游戏 1.2.6 —— python tools/safe-hooks.py --csharp --types pp pn pl Monster PriestHeal HeroActiveSkill bhh
-            "pp.hcs", "pp.hcw", "pp.doi", "pp.gxf", "pp.gen", "pp.gxe",
-            "pp.oks", "pp.hcv", "pp.hct", "pp.hcy", "pp.hcq", "pp.hcr",
-            "pp.fuz", "pp.hcz", "pp.iar", "pp.gxb", "pp.gxa",
+            // 游戏 1.2.8 —— python tools/safe-hooks.py --csharp --types pp pn pl Monster PriestHeal HeroActiveSkill bhh
+            "pp.hct", "pp.hcz", "pp.gxb", "pp.hcr", "pp.hcs", "pp.gxe",
+            "pp.hcy", "pp.mpj", "pp.mks", "pp.gxa", "pp.hcx", "pp.mto",
+            "pp.dvf", "pp.fcd", "pp.mov", "pp.eud", "pp.hjf", "pp.ffx",
+            "pp.lbn", "pp.fjj", "pp.jfh", "pp.hcq", "pp.gxf", "pp.hcv",
+            "pp.dxv",
             "pn.gxa", "pn.gxe",
-            "pl.ift", "pl.gxe", "pl.fbb", "pl.lzt", "pl.gxb", "pl.gxc",
-            "pl.gxf", "pl.nam", "pl.gxa",
+            "pl.gxf", "pl.gxe", "pl.gxa", "pl.nvw", "pl.gxb", "pl.gxc",
+            "pl.fhc",
             "Monster.guo", "Monster.gup", "Monster.gvl", "Monster.gxn", "Monster.gxo", "Monster.gxp",
             "Monster.gxq", "Monster.gxr", "Monster.gxs", "Monster.gxt", "Monster.gvu", "Monster.gwm",
             "Monster.gxu", "Monster.gxv", "Monster.gxw", "Monster.gxx",
             "PriestHeal.nrx", "PriestHeal.nry",
             "HeroActiveSkill.nsj", "HeroActiveSkill.ntc",
-            "bhh.ogt", "bhh.ogx", "bhh.onz", "bhh.kok", "bhh.ogz", "bhh.kjw",
-            "bhh.otz", "bhh.gdo", "bhh.ogu", "bhh.ogw", "bhh.ogy", "bhh.fcu",
-            "bhh.hcl", "bhh.mgd", "bhh.cak",
+            "bhh.ita", "bhh.icl", "bhh.epf", "bhh.ogz", "bhh.ogy", "bhh.ooc",
+            "bhh.bqn", "bhh.ogt", "bhh.ogx", "bhh.ogw",
         };
 
         private static readonly Dictionary<string, int> Counts = new Dictionary<string, int>();

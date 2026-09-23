@@ -1,13 +1,14 @@
 # Task Bar Hero — 逆向符号表
 
 > 来源：Il2CppDumper v6.7.46 对 `GameAssembly.dll` + `global-metadata.dat` 的 dump
-> 游戏版本：**1.2.6**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
+> 游戏版本：**1.2.8**（`Version.txt`）／Unity **6000.0.72f1** ／ IL2CPP ／ metadata v31
 >
 > 1.01.05 → 1.2.0 混淆名**全部变了**，重定位过程见第 11 节；
 > 1.2.0 → 1.2.2 只有**字段名整体平移**，见第 12 节；
 > 1.2.2 → 1.2.4 类型名和方法名又都动了，见第 13 节；
-> 1.2.4 → 1.2.6 又全动了一遍，见第 14 节。
-> **正文里的名字是 1.2.2 的**，第 14 节的对照表才是当前值——正文不再逐版改写，
+> 1.2.4 → 1.2.6 又全动了一遍，见第 14 节；
+> 1.2.6 → 1.2.8 方法名一个没动，只有字段名平移，见第 15 节。
+> **正文里的名字是 1.2.2 的**，第 15 节的对照表才是当前值——正文不再逐版改写，
 > 结构（谁是转发器、谁覆写了谁、偏移量）才是这份文档的价值。
 
 ## 0. 混淆规律（重要）
@@ -603,3 +604,30 @@ pl.bdvr 改名 → HealFunnel_Pre 里一行调试日志读它 → MissingMethodE
 > 顺带记一笔：更新当天有"启动卡在加载界面"的报告。三组对照（不加载 BepInEx / 只有 BepInEx / 完整 Mod）
 > 在半小时后都能正常进入，v0.2.4 原样也能进——卡住的是游戏在 `InventoryInit` 之后等一个外部条件，
 > 与 Mod 无关。
+
+## 15. 1.2.6 → 1.2.8 重定位记录
+
+2026-09-23 的更新（1.2.7 没在本机停留过，直接到 1.2.8）。**方法名一个没变**——历次更新头一回；
+类型名也没变；只有**字段名平移了一位**，和第 12 节（1.2.0 → 1.2.2）同型。偏移量照旧一个没变。
+
+| 1.2.6 | 1.2.8 | 偏移 | 是什么 |
+|---|---|---|---|
+| `pl.befe` | `pl.beff` | 0x58 | HeroHealth → Hero |
+| `pn.befu` | `pn.befv` | 0x58 | MonsterHealth → Monster |
+| `wj.bgtb` | `wj.bgtc` | 0x30 | HeroCache → HeroInfoData |
+| `wo.bgur` | `wo.bgus` | 0x10 | SkillCache → SkillInfoData |
+| `ActiveSkill.bizb` | `.bizd` | 0x38 | 施法者（Unit）。⚠ **`bizb` 这个名字还在，但成了 0x2C 的 `int`** |
+| `HeroActiveSkill.bipo` | `.bipq` | 0x78 | 施法者（Hero）|
+| `PriestHeal.birj` | `.birl` | 0x80 | 治疗目标。⚠ `birl` 在 1.2.6 是 PriestSanctuary 的字段名，这次挪到了 PriestHeal 上 |
+| `PriestSanctuary.birl` | `.birn` | 0x80 | 治疗场对象（`bhh`）|
+
+`gxf` / `gvu` / `gwm` / `hcy` / `gql` / `nrx` / `gkd` / `gkf` 全部原样；`hcy` 的调用点仍是 2 处来自 `Unit.gvu`、
+1 处来自 `Unit.gwm`（`pp` 上 `(float, bool, bool)` 又多了三个候选 `mto` / `eud` / `fjj`，都没有调用点）；
+`gql` 仍只被 `WindowManager.Update()` 调用；`eid` 仍是 Hero / Monster 共用机器码的转发器。
+
+**这次的教训**：`sigcheck` 对 `ActiveSkill.bizb` 报的是"找到"，因为同名成员还在——它只核对存在与否和参数个数。
+名字复用给了不同类型的字段，只有对着 dump 核偏移量和类型才看得出来。所以字段这一类**每次都要对 dump**，
+不能只看 sigcheck 通过。
+
+v0.2.5 装在 1.2.8 上的表现：12 个 hook 全部挂上（方法名没变），但四个字段访问器在 JIT 时抛
+MissingMethodException，被各自的 try/catch 接住——英雄识别、技能名、治疗目标都退回兜底文本，游戏不受影响。

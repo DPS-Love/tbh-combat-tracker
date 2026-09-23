@@ -73,7 +73,7 @@ namespace TbhCombatTracker
         /// <summary>每帧刷新光标位置和命中状态。</summary>
         public static void Tick()
         {
-            if (!Mod.Config.FixClickThrough.Value || !Overlay.Visible)
+            if (!Mod.Config.FixClickThrough.Value || !(Overlay.Visible || MainPanel.Visible))
             {
                 PointerOverPanel = false;
                 return;
@@ -90,7 +90,7 @@ namespace TbhCombatTracker
                 // 所以走 Win32 拿全局坐标再换算到客户区——客户区坐标系和 GUI 一致（左上原点）。
                 ScreenToClient(hwnd, ref p);
                 CursorGui = new Vector2(p.X, p.Y);
-                PointerOverPanel = Overlay.HitTest(CursorGui);
+                PointerOverPanel = Overlay.HitTest(CursorGui) || MainPanel.HitTest(CursorGui);
             }
             catch (Exception e)
             {

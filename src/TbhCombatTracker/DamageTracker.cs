@@ -1,15 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
 using BepInEx;
-using UnityEngine;
 
 namespace TbhCombatTracker
 {
-    /// <summary>一次伤害事件的分类信息，由 Monster.een 的 hook 填充，供 ph.gsd 的 hook 消费。</summary>
+    /// <summary>一次伤害事件的分类信息，由 TakeDamage 的 hook 填充，供 ChangeHp 的 hook 消费。</summary>
     internal struct DamageContext
     {
         public bool Valid;
@@ -19,152 +19,126 @@ namespace TbhCombatTracker
         public float OriginDamage;
     }
 
-    public class SourceStats
+    /// <summary>事件里的一个单位：id + 定义它需要的全部信息（第一次出现时写进日志）。</summary>
+    internal struct UnitRef
     {
-        public string Name;
-        public int InstanceId;
-        /// <summary>EEquipClassType，0 = 未知（怪物 / 环境伤害）。决定面板配色。</summary>
+        /// <summary>0 = 没有具体单位（环境伤害、自愈…）。</summary>
+        public int Id;
+        /// <summary>'H' 英雄 / 'M' 怪物 / 'O' 其它。</summary>
+        public char Kind;
         public int ClassType;
-
-        public double Total;
-        public long Hits;
-        public long Crits;
-        public float MaxHit;
-
-        /// <summary>按 EDamageAttribute 分桶：Physical / Fire / Cold / Lightning / Chaos …</summary>
-        public readonly double[] ByAttribute = new double[8];
-        /// <summary>按 EDamageType 分桶，索引是位序：Melee / Projectile / AOE / Summon / DOT / Trap。</summary>
-        public readonly double[] ByType = new double[8];
-        /// <summary>治疗视图专用：按 <see cref="HealKind"/> 分桶。</summary>
-        public readonly double[] ByHealKind = new double[Healing.KindCount];
-
-        /// <summary>
-        /// 按技能分桶。键是技能名（普通攻击 / MeteorStrike / SacredBlade …）。
-        /// 饼图面板要的就是这份数据。
-        /// </summary>
-        public readonly Dictionary<string, SkillStats> BySkill = new Dictionary<string, SkillStats>();
-
-        internal void AddSkill(string skill, double amount)
-        {
-            if (string.IsNullOrEmpty(skill)) skill = Strings.UnknownSkill;
-            if (!BySkill.TryGetValue(skill, out var st)) st = new SkillStats();
-            st.Total += amount;
-            st.Hits++;
-            BySkill[skill] = st;
-        }
-
-        /// <summary>占比最大的恢复来源名，治疗卡片上显示用。</summary>
-        public string TopHealKind
-        {
-            get
-            {
-                var best = -1;
-                for (var i = 0; i < ByHealKind.Length; i++)
-                    if (best < 0 || ByHealKind[i] > ByHealKind[best]) best = i;
-                return best >= 0 && ByHealKind[best] > 0d ? Healing.KindName(best) : null;
-            }
-        }
-
-        public float FirstHitTime = -1f;
-        public float LastHitTime;
-
-        public double CritRate => Hits > 0 ? (double)Crits / Hits : 0d;
-
-        public double ActiveSeconds
-        {
-            get
-            {
-                if (FirstHitTime < 0f) return 0d;
-                var span = LastHitTime - FirstHitTime;
-                return span > 0.05f ? span : 0.05d;
-            }
-        }
-
-        public double Dps => ActiveSeconds > 0d ? Total / ActiveSeconds : 0d;
+        public string Key;
+        public string Name;
     }
 
-    /// <summary>面板的三个视图，也是统计的三个桶。</summary>
-    public enum TrackerView
+    /// <summary>技能：稳定键 + 显示名。会话内编号在第一次写进日志时分配。</summary>
+    internal sealed class SkillRef
     {
-        /// <summary>我方打出的伤害（按攻击者归因）。</summary>
-        Outgoing,
-        /// <summary>英雄承受的伤害（按承伤的英雄归因）。</summary>
-        Incoming,
-        /// <summary>英雄获得的治疗（按治疗来源归因）。</summary>
-        Healing,
+        public string Key;
+        public string Name;
+        public int Aid;
     }
 
-    /// <summary>单个技能的小计。</summary>
-    public struct SkillStats
-    {
-        public double Total;
-        public long Hits;
-    }
-
-    public class Encounter
-    {
-        public int Index;
-        public float StartTime;
-        public float LastActivityTime;
-        /// <summary>关卡分段模式下的标题，例如 "关卡 #3"；空则用战斗序号。</summary>
-        public string Label;
-
-        public readonly Dictionary<int, SourceStats> Outgoing = new Dictionary<int, SourceStats>();
-        public readonly Dictionary<int, SourceStats> Incoming = new Dictionary<int, SourceStats>();
-        public readonly Dictionary<int, SourceStats> Healing = new Dictionary<int, SourceStats>();
-
-        public Dictionary<int, SourceStats> Bucket(TrackerView v)
-        {
-            switch (v)
-            {
-                case TrackerView.Incoming: return Incoming;
-                case TrackerView.Healing: return Healing;
-                default: return Outgoing;
-            }
-        }
-
-        public double TotalOf(TrackerView v)
-        {
-            double s = 0;
-            foreach (var x in Bucket(v).Values) s += x.Total;
-            return s;
-        }
-
-        public double OutgoingTotal => TotalOf(TrackerView.Outgoing);
-        public double IncomingTotal => TotalOf(TrackerView.Incoming);
-
-        public double DurationSeconds
-        {
-            get
-            {
-                var d = LastActivityTime - StartTime;
-                return d > 0.05f ? d : 0.05d;
-            }
-        }
-    }
-
-    public static class DamageTracker
+    /// <summary>
+    /// 实时统计的入口：hook 在这里产出战斗事件。
+    ///
+    /// 每个事件同时交给两处——本局的实时解析器（面板上的数字）和日志写入器（本局的日志文件）。
+    /// 解析器和导入日志时用的是同一个 <see cref="CombatParser"/>，
+    /// 所以"现在看到的"和"以后导入这份日志看到的"一定一致。
+    /// 金额和时间先规整成日志里的写法再分发，连小数点后的尾数都对得上。
+    /// </summary>
+    internal static class DamageTracker
     {
         private static readonly object Gate = new object();
 
+        /// <summary>会话时钟：从插件加载起算。用 Stopwatch 而不是 Time.realtimeSinceStartup——每个事件都要取时间，不必跨 IL2CPP 边界。</summary>
+        private static readonly Stopwatch Clock = Stopwatch.StartNew();
+
         [ThreadStatic] private static DamageContext _pending;
 
-        private static Encounter _current = NewEncounter(1);
-        private static int _encounterCounter = 1;
+        private static readonly Session LiveSession = new Session();
+        private static readonly CombatParser Parser = new CombatParser(LiveSession, new CombatParser.Options());
+        private static bool _logEnabled;
 
-        public static Encounter Current { get { lock (Gate) return _current; } }
+        /// <summary>写进日志的单位定义，用来判断是否要（重新）写一条 U。怪物一波一波地刷，别无限涨。</summary>
+        private static readonly Dictionary<int, (char Kind, int Class, string Name)> SentUnits =
+            new Dictionary<int, (char, int, string)>();
+        private static int _nextAbility = 1;
 
-        // ---- Monster.een 的 hook 用这两个方法夹住一次伤害结算 ----
+        /// <summary>本局的实时会话。只在主线程上读写。</summary>
+        public static Session Live => LiveSession;
+
+        /// <summary>实时的当前段——浮窗显示的就是它。</summary>
+        public static Encounter Current { get { lock (Gate) return LiveSession.Current; } }
+
+        /// <summary>会话内秒数。</summary>
+        internal static double Now => Clock.Elapsed.TotalSeconds;
+
+        /// <summary>插件加载时调一次：按配置设好解析器，开始写日志。</summary>
+        public static void Init()
+        {
+            lock (Gate)
+            {
+                var opt = Parser.Opt;
+                opt.SegmentByStage = Mod.Config.SegmentByStage.Value;
+                opt.IdleSeconds = Mod.Config.IdleResetSeconds.Value;
+                opt.MaxEncounters = Math.Clamp(Mod.Config.HistorySize.Value, 0, 1000);
+                Parser.Started = e => Mod.Log.Msg($"[stage] === 开始统计 {Strings.EncounterTitle(e)} ===");
+                Parser.Relabeled = e => Mod.Log.Msg($"[stage] 当前段更正为 {Strings.EncounterTitle(e)}");
+                Parser.Closed = e => Mod.Log.Msg(
+                    $"[stage] 本段结束：{Strings.EncounterTitle(e)}  {e.DurationSeconds:0.0}s  " +
+                    $"输出 {Overlay.Short(e.OutgoingTotal)}  承伤 {Overlay.Short(e.IncomingTotal)}  " +
+                    $"治疗 {Overlay.Short(e.HealingTotal)}");
+                LiveSession.StartedAt = DateTimeOffset.Now - Clock.Elapsed;
+            }
+
+            if (!Mod.Config.LogEvents.Value)
+            {
+                Mod.Log.Msg("战斗日志已在配置里关闭，主面板只有本局的数据。");
+                return;
+            }
+
+            var meta = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("mod", BuildInfo.Version),
+                new KeyValuePair<string, string>("game", ReadGameVersion() ?? "?"),
+                new KeyValuePair<string, string>("start", LiveSession.StartedAt.Value.ToString("o", CultureInfo.InvariantCulture)),
+            };
+            EventLogWriter.Start(LogDirectory, meta, Mod.Config.LogRetentionDays.Value);
+            _logEnabled = EventLogWriter.Running;
+        }
+
+        public static string LogDirectory => Path.Combine(Paths.BepInExRootPath, "TbhCombatTracker", "logs");
+
+        /// <summary>导入日志时用的解析选项：分段方式跟当前配置一致，段数不设上限。</summary>
+        public static CombatParser.Options ImportOptions() => new CombatParser.Options
+        {
+            SegmentByStage = Mod.Config.SegmentByStage.Value,
+            IdleSeconds = Mod.Config.IdleResetSeconds.Value,
+            MaxEncounters = 0,
+        };
+
+        /// <summary>关卡信号读不出来了：本局退回按空闲时间分段。</summary>
+        public static void DisableStageSegmentation()
+        {
+            lock (Gate) Parser.Opt.SegmentByStage = false;
+        }
+
+        public static List<SourceStats> Snapshot(TrackerView view)
+        {
+            lock (Gate) return LiveSession.Current.Bucket(view).Values.OrderByDescending(v => v.Total).ToList();
+        }
+
+        // ------------------------------------------------------------------ TakeDamage 的 hook 用这两个方法夹住一次伤害结算
 
         /// <summary>
         /// 进入一次伤害结算，返回之前的上下文供 Finalizer 恢复。
         ///
-        /// 必须是保存/恢复而不是简单的 push/clear：Monster.grd 可能调 base.grd，
+        /// 必须是保存/恢复而不是简单的 push/clear：TakeDamage 可能调 base 的实现，
         /// 两层都会进这里；内层若直接清空，回到外层再扣血时上下文就没了，
         /// 暴击率和元素拆分会莫名其妙丢一部分。
         /// </summary>
-        internal static DamageContext PushContext(bool crit, int damageType, int damageAttribute,
-                                                  float originDamage)
+        internal static DamageContext PushContext(bool crit, int damageType, int damageAttribute, float originDamage)
         {
             var prev = _pending;
             _pending = new DamageContext
@@ -180,173 +154,140 @@ namespace TbhCombatTracker
 
         internal static void RestoreContext(DamageContext prev) => _pending = prev;
 
-        // ---- ph.gsd / pj.gsd 的 hook 记录最终数值 ----
+        // ------------------------------------------------------------------ ChangeHp 的 hook 记录最终数值
 
-        internal static void RecordOutgoing(int attackerId, SourceIdentity attacker, float amount,
-                                            string skill = null)
+        /// <summary>对怪物造成的伤害。攻击者 Id = 0 表示未知来源（陷阱、召唤物主人已死…）。</summary>
+        internal static void RecordOutgoing(in UnitRef attacker, in UnitRef target, float amount, SkillRef skill)
         {
-            _pendingSkill = skill;
-            try { Record(TrackerView.Outgoing, attackerId, attacker, amount); }
-            finally { _pendingSkill = null; }
-        }
-
-        [ThreadStatic] private static string _pendingSkill;
-
-        internal static void RecordIncoming(int victimId, SourceIdentity victim, float amount,
-                                            string skill = null)
-        {
-            _pendingSkill = skill;
-            try { Record(TrackerView.Incoming, victimId, victim, amount); }
-            finally { _pendingSkill = null; }
-        }
-
-        internal static void RecordHealing(int sourceId, SourceIdentity source, float amount, HealKind kind)
-        {
-            _pendingHealKind = (int)kind;
-            try { Record(TrackerView.Healing, sourceId, source, amount); }
-            finally { _pendingHealKind = -1; }
-        }
-
-        [ThreadStatic] private static int _pendingHealKind;
-
-        private static void Record(TrackerView view, int id, SourceIdentity who, float amount)
-        {
-            // 0 和 NaN 一律丢弃——它们会把 DPS 和暴击率算歪。
-            if (float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f)
-                return;
-
-            var now = Time.realtimeSinceStartup;
+            if (!Valid(amount)) return;
             var ctx = _pending;
-
             lock (Gate)
             {
-                MaybeRollEncounter(now);
+                var t = EventLogFormat.CanonicalTime(Now);
+                EnsureUnit(t, attacker);
+                EnsureUnit(t, target);
+                Emit(Hit(EventKind.Damage, t, attacker.Id, target.Id, amount, ctx, EnsureAbility(t, skill)));
+            }
+        }
 
-                var bucket = _current.Bucket(view);
-                if (!bucket.TryGetValue(id, out var s))
-                {
-                    s = new SourceStats { Name = who.Name, InstanceId = id, ClassType = who.ClassType };
-                    bucket[id] = s;
-                }
-                else
-                {
-                    // 首次记录时职业可能还没解析出来，后面补上
-                    if (s.Name == null && who.Name != null) s.Name = who.Name;
-                    if (s.ClassType == 0 && who.ClassType != 0) s.ClassType = who.ClassType;
-                }
-
-                s.Total += amount;
-                s.Hits++;
-                if (amount > s.MaxHit) s.MaxHit = amount;
-                if (s.FirstHitTime < 0f) s.FirstHitTime = now;
-                s.LastHitTime = now;
-
-                if (_pendingSkill != null) s.AddSkill(_pendingSkill, amount);
-
-                if (view == TrackerView.Healing)
-                {
-                    var k = _pendingHealKind;
-                    if (k >= 0 && k < s.ByHealKind.Length) s.ByHealKind[k] += amount;
-                }
-
-                // 分类上下文（暴击/元素/伤害类型）只对伤害有意义，治疗不该沾
-                if (ctx.Valid && view != TrackerView.Healing)
-                {
-                    if (ctx.IsCritical) s.Crits++;
-
-                    var attr = ctx.DamageAttribute;
-                    if (attr >= 0 && attr < s.ByAttribute.Length)
-                        s.ByAttribute[attr] += amount;
-
-                    // EDamageType 是位标志（Melee=1, Projectile=2, AOE=4, Summon=8, DOT=16, Trap=32），
-                    // 一次伤害理论上只带一个位，但按位拆开更保险。
-                    var t = ctx.DamageType;
-                    if (t == 0)
-                    {
-                        s.ByType[0] += amount;
-                    }
-                    else
-                    {
-                        for (int bit = 0; bit < 7 && t != 0; bit++)
-                        {
-                            if ((t & (1 << bit)) != 0)
-                                s.ByType[bit + 1] += amount;
-                        }
-                    }
-                }
-
-                _current.LastActivityTime = now;
+        /// <summary>英雄承受的伤害。</summary>
+        internal static void RecordIncoming(in UnitRef victim, in UnitRef attacker, float amount, SkillRef skill)
+        {
+            if (!Valid(amount)) return;
+            var ctx = _pending;
+            lock (Gate)
+            {
+                var t = EventLogFormat.CanonicalTime(Now);
+                EnsureUnit(t, victim);
+                EnsureUnit(t, attacker);
+                Emit(Hit(EventKind.Taken, t, victim.Id, attacker.Id, amount, ctx, EnsureAbility(t, skill)));
             }
         }
 
         /// <summary>
-        /// 关卡开始时切一段新的。由 <see cref="StageWatcher"/> 在检测到
-        /// StageManager 进入新关卡时调用。
+        /// 英雄获得的生命恢复。<paramref name="caster"/> 是技能治疗归因到的施法者，Id = 0 表示自愈。
+        /// 除了记录时的判定 <paramref name="kind"/>，还带上判定依据的原始事实（恢复总入口的两个标志、
+        /// 所在的上游括号），以后改进分类规则时旧日志也能重新分类。
         /// </summary>
-        public static void BeginStage(string label)
+        internal static void RecordHealing(in UnitRef target, in UnitRef caster, float amount, HealKind kind,
+                                           sbyte flagB, sbyte flagC, int bracket)
         {
+            if (!Valid(amount)) return;
             lock (Gate)
             {
-                // 上一段是空的就直接改标签，别平白多出一堆空战斗
-                if (_current.Outgoing.Count == 0 && _current.Incoming.Count == 0 &&
-                    _current.Healing.Count == 0)
+                var t = EventLogFormat.CanonicalTime(Now);
+                EnsureUnit(t, target);
+                EnsureUnit(t, caster);
+                Emit(new CombatEvent
                 {
-                    _current.Label = label;
-                    _current.StartTime = Time.realtimeSinceStartup;
-                    _current.LastActivityTime = _current.StartTime;
-                    return;
-                }
-
-                _encounterCounter++;
-                _current = NewEncounter(_encounterCounter);
-                _current.Label = label;
+                    T = t, Kind = EventKind.Heal, A = target.Id, B = caster.Id,
+                    Amount = EventLogFormat.CanonicalAmount(amount),
+                    HealKind = (int)kind, FlagB = flagB, FlagC = flagC, Bracket = bracket,
+                });
             }
         }
 
-        private static void MaybeRollEncounter(float now)
-        {
-            // 按关卡分段时不再用空闲时间切，否则关卡内的间歇会被误切
-            if (Mod.Config?.SegmentByStage?.Value == true) return;
+        // ------------------------------------------------------------------ 关卡信号与手动重置
 
-            var idle = Mod.Config?.IdleResetSeconds?.Value ?? 8f;
-            if (idle <= 0f) return;
+        internal static void StageName(string name) => Signal(new CombatEvent { Kind = EventKind.StageName, Text = name });
+        internal static void StageStart(bool value) => Signal(new CombatEvent { Kind = EventKind.StageStart, Flag = value });
+        internal static void StageWave(string state) => Signal(new CombatEvent { Kind = EventKind.Wave, Text = state });
 
-            if (_current.Outgoing.Count == 0 && _current.Incoming.Count == 0 &&
-                _current.Healing.Count == 0)
-            {
-                _current.StartTime = now;
-                return;
-            }
+        /// <summary>F10 / 浮窗上的「重置」：当前段收进记录，另起一段。</summary>
+        public static void ResetCurrent() => Signal(new CombatEvent { Kind = EventKind.Reset });
 
-            if (now - _current.LastActivityTime >= idle)
-            {
-                _encounterCounter++;
-                _current = NewEncounter(_encounterCounter);
-                _current.StartTime = now;
-            }
-        }
-
-        public static void ResetCurrent()
+        private static void Signal(CombatEvent e)
         {
             lock (Gate)
             {
-                _encounterCounter++;
-                _current = NewEncounter(_encounterCounter);
-                _current.StartTime = Time.realtimeSinceStartup;
+                e.T = EventLogFormat.CanonicalTime(Now);
+                Emit(e);
             }
         }
 
-        private static Encounter NewEncounter(int index)
+        // ------------------------------------------------------------------ 内部
+
+        private static bool Valid(float amount)
+            => !(float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f);
+
+        private static CombatEvent Hit(EventKind kind, double t, int a, int b, float amount, in DamageContext ctx, int aid)
+            => new CombatEvent
+            {
+                T = t, Kind = kind, A = a, B = b,
+                Amount = EventLogFormat.CanonicalAmount(amount),
+                Origin = ctx.Valid ? EventLogFormat.CanonicalAmount(ctx.OriginDamage) : float.NaN,
+                Crit = ctx.Valid ? (sbyte)(ctx.IsCritical ? 1 : 0) : (sbyte)-1,
+                DamageType = ctx.Valid ? ctx.DamageType : -1,
+                Attribute = ctx.Valid ? ctx.DamageAttribute : -1,
+                Ability = aid,
+            };
+
+        private static void Emit(in CombatEvent e)
         {
-            var t = 0f;
-            try { t = Time.realtimeSinceStartup; } catch { /* 初始化早于 Unity 时钟时会抛 */ }
-            return new Encounter { Index = index, StartTime = t, LastActivityTime = t };
+            Parser.Apply(e);
+            if (_logEnabled) EventLogWriter.Enqueue(e);
         }
 
-        public static List<SourceStats> Snapshot(TrackerView view)
+        /// <summary>单位第一次出现、或名字 / 职业变了，就写一条定义。</summary>
+        private static void EnsureUnit(double t, in UnitRef u)
         {
-            lock (Gate) return _current.Bucket(view).Values.OrderByDescending(v => v.Total).ToList();
+            if (u.Id == 0) return;
+            var kind = u.Kind == '\0' ? 'O' : u.Kind;
+            if (SentUnits.TryGetValue(u.Id, out var sent) &&
+                sent.Kind == kind && sent.Class == u.ClassType && sent.Name == u.Name)
+                return;
+
+            // 重新写一遍定义是无害的，所以满了直接清空，不做精细淘汰
+            if (SentUnits.Count > 20000) SentUnits.Clear();
+            SentUnits[u.Id] = (kind, u.ClassType, u.Name);
+
+            Emit(new CombatEvent
+            {
+                T = t, Kind = EventKind.Unit, A = u.Id, UnitKind = kind,
+                ClassType = u.ClassType, Key = u.Key ?? u.Name, Text = u.Name,
+            });
         }
+
+        private static int EnsureAbility(double t, SkillRef s)
+        {
+            if (s == null) return 0;
+            if (s.Aid != 0) return s.Aid;
+            s.Aid = _nextAbility++;
+            Emit(new CombatEvent { T = t, Kind = EventKind.Ability, A = s.Aid, Key = s.Key ?? s.Name, Text = s.Name });
+            return s.Aid;
+        }
+
+        private static string ReadGameVersion()
+        {
+            try
+            {
+                var path = Path.Combine(Paths.GameRootPath, "Version.txt");
+                return File.Exists(path) ? File.ReadAllText(path).Trim() : null;
+            }
+            catch { return null; }
+        }
+
+        // ------------------------------------------------------------------ 伤害类型 / 元素的显示名
 
         private static readonly string[] AttributeNames =
             { "Physical", "Fire", "Cold", "Lightning", "Chaos", "AllElement", "None", "?" };
@@ -414,42 +355,46 @@ namespace TbhCombatTracker
             }
         }
 
-        public static string ExportCsv(string tag = null)
+        // ------------------------------------------------------------------ CSV 导出
+
+        /// <summary>把一段导出成 CSV。浮窗的 F11 导出实时的当前段，主面板导出选中的那段。</summary>
+        public static string ExportCsv(Encounter enc, string tag = null)
         {
             try
             {
+                if (enc == null) return null;
+
                 var dir = Path.Combine(Paths.BepInExRootPath, "TbhCombatTracker");
                 Directory.CreateDirectory(dir);
-
-                Encounter enc;
-                lock (Gate) enc = _current;
 
                 var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
                 var file = Path.Combine(dir, $"damage-{stamp}{(tag != null ? "-" + tag : "")}.csv");
 
                 var sb = new StringBuilder();
+                // 第一行说明这份数据属于哪一段：关卡分段模式下是关卡名（重复挑战带序号），否则是战斗序号
+                sb.AppendLine($"# segment: {Strings.EncounterTitle(enc)}, duration_seconds: {F(enc.DurationSeconds)}");
                 sb.AppendLine("direction,source,job,class_type,instance_id,total,dps,hits,crits,crit_rate,max_hit,active_seconds," +
                               string.Join(",", AttributeNames.Take(7).Select(n => "attr_" + n)) + "," +
                               string.Join(",", TypeNames.Take(7).Select(n => "type_" + n)));
 
-                void Dump(string dir2, IEnumerable<SourceStats> rows)
+                void Dump(string direction, IEnumerable<SourceStats> rows)
                 {
                     foreach (var s in rows.OrderByDescending(r => r.Total))
                     {
-                        sb.Append(dir2).Append(',')
-                          .Append(Csv(s.Name)).Append(',')
+                        sb.Append(direction).Append(',')
+                          .Append(Csv(Strings.SourceName(s))).Append(',')
                           .Append(Csv(JobTable.Label(s.ClassType) ?? "")).Append(',')
-                          .Append(s.ClassType).Append(',')
-                          .Append(s.InstanceId).Append(',')
+                          .Append(s.ClassType.ToString(CultureInfo.InvariantCulture)).Append(',')
+                          .Append(s.InstanceId.ToString(CultureInfo.InvariantCulture)).Append(',')
                           .Append(F(s.Total)).Append(',')
                           .Append(F(s.Dps)).Append(',')
-                          .Append(s.Hits).Append(',')
-                          .Append(s.Crits).Append(',')
+                          .Append(s.Hits.ToString(CultureInfo.InvariantCulture)).Append(',')
+                          .Append(s.Crits.ToString(CultureInfo.InvariantCulture)).Append(',')
                           .Append(F(s.CritRate)).Append(',')
                           .Append(F(s.MaxHit)).Append(',')
                           .Append(F(s.ActiveSeconds));
-                        for (int i = 0; i < 7; i++) sb.Append(',').Append(F(s.ByAttribute[i]));
-                        for (int i = 0; i < 7; i++) sb.Append(',').Append(F(s.ByType[i]));
+                        for (var i = 0; i < 7; i++) sb.Append(',').Append(F(s.ByAttribute[i]));
+                        for (var i = 0; i < 7; i++) sb.Append(',').Append(F(s.ByType[i]));
                         sb.AppendLine();
                     }
                 }
@@ -459,22 +404,21 @@ namespace TbhCombatTracker
                     Dump("outgoing", enc.Outgoing.Values);
                     Dump("incoming", enc.Incoming.Values);
                     Dump("healing", enc.Healing.Values);
-                }
 
-                // 技能拆分单开一段：每个来源的技能数不固定，做成列会很难看
-                sb.AppendLine();
-                sb.AppendLine("# 技能拆分");
-                sb.AppendLine("direction,source,skill,total,hits,share_of_source");
-                lock (Gate)
-                {
+                    // 技能拆分单开一段：每个来源的技能数不固定，做成列会很难看
+                    sb.AppendLine();
+                    sb.AppendLine("# 技能拆分");
+                    sb.AppendLine("direction,source,skill,total,hits,crits,max_hit,share_of_source");
                     foreach (var s in enc.Outgoing.Values.OrderByDescending(v => v.Total))
                     {
                         foreach (var kv in s.BySkill.OrderByDescending(k => k.Value.Total))
                         {
-                            sb.Append("outgoing,").Append(Csv(s.Name)).Append(',')
-                              .Append(Csv(kv.Key)).Append(',')
+                            sb.Append("outgoing,").Append(Csv(Strings.SourceName(s))).Append(',')
+                              .Append(Csv(Strings.SkillName(kv.Key))).Append(',')
                               .Append(F(kv.Value.Total)).Append(',')
-                              .Append(kv.Value.Hits).Append(',')
+                              .Append(kv.Value.Hits.ToString(CultureInfo.InvariantCulture)).Append(',')
+                              .Append(kv.Value.Crits.ToString(CultureInfo.InvariantCulture)).Append(',')
+                              .Append(F(kv.Value.Max)).Append(',')
                               .Append(F(s.Total > 0d ? kv.Value.Total / s.Total : 0d))
                               .AppendLine();
                         }

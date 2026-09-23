@@ -110,7 +110,8 @@ namespace TbhCombatTracker
         /// <summary>面板上的「更新」按钮：此时才下载、校验、替换文件。</summary>
         public static void RequestInstall()
         {
-            if (Installing || Installed || !CanInstall) return;
+            // 没有比本机新的版本就什么都不做——横幅上不会有这个按钮，这里再拦一道
+            if (Installing || Installed || !CanInstall || Current != State.UpdateAvailable) return;
             Installing = true;
             InstallError = null;
             Task.Run(InstallAsync);

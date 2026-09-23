@@ -20,8 +20,11 @@ namespace TbhCombatTracker
     /// 代价是每次重绘要跑 size² 个像素——所以按数据指纹缓存，数据没变就不重画。
     ///
     /// 纹理按显示尺寸的 2 倍渲染再缩小显示，靠双线性过滤白捡一层抗锯齿。
+    ///
+    /// 每个画饼图的地方各持有一个实例：明细窗口和主面板同时开着时，
+    /// 共用一张纹理会互相覆盖，每帧都在重画。
     /// </summary>
-    internal static class PieChart
+    internal sealed class PieChart
     {
         private const int Supersample = 2;
 
@@ -42,15 +45,15 @@ namespace TbhCombatTracker
         public static Color ColorAt(int index)
             => Palette[((index % Palette.Length) + Palette.Length) % Palette.Length];
 
-        private static Texture2D _tex;
-        private static string _signature;
-        private static int _texSize;
+        private Texture2D _tex;
+        private string _signature;
+        private int _texSize;
 
         /// <summary>
         /// 取一张画好的饼图。<paramref name="displaySize"/> 是显示尺寸，内部按 2 倍渲染。
         /// 数据没变就直接返回上次那张。
         /// </summary>
-        public static Texture2D Get(IList<Slice> slices, int displaySize)
+        public Texture2D Get(IList<Slice> slices, int displaySize)
         {
             var sig = Signature(slices, displaySize);
             if (_tex != null && sig == _signature) return _tex;
@@ -142,14 +145,20 @@ namespace TbhCombatTracker
 
         private static string Signature(IList<Slice> slices, int displaySize)
         {
-            // 数值取到 4 位有效数字就够——面板上肉眼分辨不出更细的变化，
-            // 但能避免每帧因为末位抖动而重画整张纹理。
+            // 图形只取决于各块的占比和颜色，所以按 0.1% 取整的占比做指纹。
+            // 以前用数值本身：实时那段的总量每一击都在涨，指纹几乎每帧都变，
+            // 整张纹理跟着每帧重画、再传一遍 GPU。占比很快就稳定了，按占比比较就不用重画。
+            double total = 0;
+            for (var i = 0; i < slices.Count; i++) total += slices[i].Value;
+
             var sb = new System.Text.StringBuilder();
             sb.Append(displaySize).Append('|');
             for (var i = 0; i < slices.Count; i++)
             {
-                sb.Append(slices[i].Label).Append(':')
-                  .Append(slices[i].Value.ToString("G4")).Append(';');
+                var share = total > 0d ? slices[i].Value / total : 0d;
+                var c = (Color32)slices[i].Color;
+                sb.Append(Math.Round(share, 3).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))
+                  .Append(':').Append(c.r).Append(',').Append(c.g).Append(',').Append(c.b).Append(';');
             }
             return sb.ToString();
         }

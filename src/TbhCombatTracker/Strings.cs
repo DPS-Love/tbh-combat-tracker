@@ -117,7 +117,26 @@ namespace TbhCombatTracker
         public static string UnknownSource => Pick("未知来源", "Unknown");
         public static string UnknownSkill => Pick("未知技能", "Unknown Skill");
 
-        // ================================================================ 主面板
+        /// <summary>来源的显示名。解析器只存原始事实，id 0（没有具体单位）的名字在这里给。</summary>
+        public static string SourceName(SourceStats s)
+            => s == null ? "?" : s.Name ?? (s.InstanceId == 0 ? UnknownSource : "?");
+
+        /// <summary>技能的显示名；日志里技能名为空时（极少见）显示"未知技能"。</summary>
+        public static string SkillName(string name) => string.IsNullOrEmpty(name) ? UnknownSkill : name;
+
+        /// <summary>
+        /// 一段的标题：关卡名（自动重复挑战时带序号，如「关卡 3-2 #2」）；
+        /// 读不到关卡名时是「关卡 #n」；按空闲时间分段时是战斗序号 #n。
+        /// </summary>
+        public static string EncounterTitle(Encounter e)
+        {
+            if (e == null) return "—";
+            if (!string.IsNullOrEmpty(e.StageName)) return e.Run > 1 ? StageRepeat(e.StageName, e.Run) : e.StageName;
+            if (e.StageNo > 0) return StageLabel(e.StageNo);
+            return "#" + e.Index;
+        }
+
+        // ================================================================ 浮窗
 
         public static string ViewLabel(TrackerView v)
         {
@@ -140,20 +159,70 @@ namespace TbhCombatTracker
         }
 
         public static string Reset => Pick("重置", "Reset");
+        public static string BtnLog => Pick("记录", "Log");
         public static string HitsCount(long n) => Pick($"{n} 次", $"{n} hits");
         public static string CritRate(double rate) => Pick($"暴 {rate * 100d:0}%", $"Crit {rate * 100d:0}%");
         public static string CritNone => Pick("暴 —", "Crit —");
         public static string MaxHit(string shortValue) => Pick($"最大 {shortValue}", $"Max {shortValue}");
         public static string StageLabel(int n) => Pick($"关卡 #{n}", $"Stage #{n}");
+        /// <summary>同一关连续第 n 次：关卡名来自游戏、已是玩家语言，只补一个序号，如 "关卡 3-2 #2"。</summary>
+        public static string StageRepeat(string name, int n) => $"{name} #{n}";
+
+        // ================================================================ 战斗记录主面板
+
+        public static string MainTitle => Pick("TBH Combat Tracker — 战斗记录", "TBH Combat Tracker — Combat Log");
+        public static string LiveSession(int n) => Pick($"本局 · {n} 段", $"This session · {n} encounters");
+        public static string ImportedSession(string file, int n) => Pick($"导入 {file} · {n} 段", $"Imported {file} · {n} encounters");
+        public static string BtnImport => Pick("导入", "Import");
+        public static string BtnLogFolder => Pick("日志目录", "Log folder");
+        public static string BtnExportCsv => Pick("导出 CSV", "Export CSV");
+        public static string BtnBackToLive => Pick("回到本局", "Back to live");
+        public static string BtnCancel => Pick("取消", "Cancel");
+        public static string Encounters => Pick("战斗记录", "Encounters");
+        public static string NoEncounters => Pick("还没有战斗记录", "No encounters yet");
+        public static string LiveTag => Pick("实时", "Live");
+        public static string LiveHint => Pick("实时更新中", "Updating live");
+        public static string DroppedHint(int n) => Pick($"更早的 {n} 段在日志里", $"{n} older in the log");
+
+        public static string SummaryStats(string outgoing, string dps, string incoming, string healing)
+            => Pick($"输出 {outgoing}（{dps}/s）   承伤 {incoming}   治疗 {healing}",
+                    $"Damage {outgoing} ({dps}/s)   Taken {incoming}   Healing {healing}");
+
+        public static string ColName => Pick("名字", "Name");
+        public static string ColItem => Pick("项目", "Item");
+        public static string ColTotal => Pick("总量", "Total");
+        public static string ColShare => Pick("占比", "Share");
+        public static string ColPerSec => Pick("每秒", "Per sec");
+        public static string ColCrit => Pick("暴击", "Crit");
+        public static string ColHits => Pick("次数", "Hits");
+        public static string ColMax => Pick("最高", "Max");
+        public static string ColTopSource => Pick("主要来源", "Top source");
+
+        public static string Peak(string v) => Pick($"峰值 {v}/s", $"Peak {v}/s");
+        public static string ChartHint => Pick("每秒数值 · 5 秒平滑", "Per second · 5 s smoothing");
+        public static string SelectHint => Pick("点上面表格里的一行看它的拆分", "Click a row above for its breakdown");
+
+        public static string PickLog => Pick("选择要导入的日志：读入后按当前版本重新解析", "Choose a log: it is re-parsed with this version");
+        public static string NoLogs => Pick("日志目录里还没有日志", "No logs in the log folder yet");
+        public static string CurrentFileTag => Pick("（本局，正在写）", "  (this session, still writing)");
+        public static string Parsing(string file) => Pick($"正在解析 {file} …", $"Parsing {file} …");
+        public static string ImportDone(int n, long events)
+            => Pick($"已导入 {n} 段（{events} 条事件）", $"Imported {n} encounters ({events} events)");
+        public static string ImportTruncated => Pick("，末尾不完整（游戏没正常退出）", "; the log ends abruptly (the game did not exit cleanly)");
+        public static string ImportCurrentFile => Pick("，本局日志读到最近一次落盘", "; this session's log, up to its last flush");
+        public static string ImportFailed(string why) => Pick($"导入失败：{why}", $"Import failed: {why}");
+        public static string Exported(string file) => Pick($"已导出 {file}", $"Exported {file}");
+        public static string ExportFailed => Pick("导出失败，详见日志", "Export failed, see the log");
 
         // ================================================================ 明细窗口
 
-        public static string DetailTitle(string name, string view) => $"{name} — {view}";
+        public static string DetailTitle(string name, string view, string segment) => $"{name} — {view}  ·  {segment}";
         public static string TabSkills => Pick("技能", "Skills");
         public static string TabTypes => Pick("类型", "Types");
         public static string TabElements => Pick("元素", "Elements");
         public static string TabHealSources => Pick("恢复来源", "Sources");
         public static string NoBreakdown => Pick("暂无细分数据", "No breakdown yet");
+        public static string NoDataInSegment => Pick("这一段没有它的数据", "No data in this segment");
         public static string MoreItems(int n) => Pick($"…另有 {n} 项", $"…{n} more");
 
         // ================================================================ 更新横幅

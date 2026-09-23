@@ -24,6 +24,17 @@ namespace TbhCombatTracker
             Mod.Init(Log, Config);
             Mod.Log.Msg($"{PluginName} v{BuildInfo.Version}（构建时游戏 {BuildInfo.GameVersion}）启动中…");
 
+            // 战斗日志和实时解析器。日志写不了只影响"以后导入"，实时统计照常
+            try
+            {
+                DamageTracker.Init();
+                AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+            }
+            catch (Exception e)
+            {
+                Mod.Log.Error($"战斗日志初始化失败，本次只做实时统计：{e.GetType().Name}: {e.Message}");
+            }
+
             // 手动打补丁而不是用 [HarmonyPatch] 特性 + PatchAll：
             // 某个 hook 因为游戏更新失配时，其余 hook 仍然能工作，而不是整个插件崩掉。
             _harmony = new Harmony(PluginGuid);
@@ -48,6 +59,12 @@ namespace TbhCombatTracker
             UpdateChecker.Start();
 
             Mod.Log.Msg("就绪。");
+        }
+
+        /// <summary>进程退出的兜底：OnApplicationQuit 没赶上时，也把战斗日志收尾。</summary>
+        private static void OnProcessExit(object sender, EventArgs e)
+        {
+            try { EventLogWriter.Stop(); } catch { /* 退出阶段不吵闹 */ }
         }
 
         /// <summary>本次会话是否已由玩家停用统计。</summary>
@@ -75,7 +92,7 @@ namespace TbhCombatTracker
 
         public override bool Unload()
         {
-            try { DamageTracker.ExportCsv("session-final"); } catch { /* 退出阶段不吵闹 */ }
+            try { EventLogWriter.Stop(); } catch { /* 退出阶段不吵闹 */ }
             _harmony?.UnpatchSelf();
             return true;
         }

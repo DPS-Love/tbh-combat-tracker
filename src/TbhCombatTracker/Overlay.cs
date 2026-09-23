@@ -26,6 +26,10 @@ namespace TbhCombatTracker
         private const float PctBarH = 3f;
         private const float PctTextH = 11f;
         private const float DetailH = 12f;
+        /// <summary>标题栏最左「记录」按钮的宽度。</summary>
+        private const float LogBtnW = 36f;
+        /// <summary>标题栏要放得下「记录」、标题和右侧两个按钮；卡片少时（刚切段、只有一个人）不再挤成一团。</summary>
+        private const float MinWidth = 320f;
 
         private static Rect _rect = new Rect(20f, 20f, 460f, 116f);
         private static TrackerView _view = TrackerView.Outgoing;
@@ -68,7 +72,7 @@ namespace TbhCombatTracker
 
                 // 窗口宽度跟着卡片数量走，没人的时候也留出提示位
                 var n = Mathf.Max(1, RowCount());
-                _rect.width = Pad * 2f + n * CardW + (n - 1) * CardGap;
+                _rect.width = Mathf.Max(Pad * 2f + n * CardW + (n - 1) * CardGap, MinWidth);
                 _rect.height = HeaderH + NameH + BlockH + PctBarH + PctTextH + DetailH + Pad * 2f;
 
                 // 更新横幅要放得下文字和三个按钮
@@ -101,6 +105,9 @@ namespace TbhCombatTracker
 
         /// <summary>当前视图，明细窗口要跟着一起切。</summary>
         public static TrackerView CurrentView => _view;
+
+        /// <summary>面板真的画在屏幕上（没被收起，也没被熔断）。</summary>
+        public static bool Shown => Visible && !_disabled;
 
         public static float CurrentScale
         {
@@ -154,6 +161,7 @@ namespace TbhCombatTracker
 
         private static void DrawWindowBody()
         {
+            // 浮窗只看实时的当前段；已经结束的段在「记录」打开的主面板里看
             var enc = DamageTracker.Current;
             var rows = DamageTracker.Snapshot(_view);
             var total = enc.TotalOf(_view);
@@ -167,14 +175,19 @@ namespace TbhCombatTracker
                 top += UpdateBanner.Height;
             }
 
-            // ---- 头部：关卡/战斗标题 + 时长 + 总量 + 团队每秒 + 按钮 ----
+            // ---- 头部：「记录」+ 关卡/战斗标题 + 时长 + 总量 + 团队每秒 + 按钮 ----
             var headRect = new Rect(Pad, top, _rect.width - Pad * 2f, HeaderH);
-            var title = string.IsNullOrEmpty(enc.Label) ? $"#{enc.Index}" : enc.Label;
-            Shadowed(new Rect(headRect.x, headRect.y, headRect.width * 0.62f, headRect.height),
-                     $"{title}   {duration:0.0}s   {Short(total)}   " +
-                     $"{Short(duration > 0d ? total / duration : 0d)}/s", _header);
+
+            // 最左的「记录」打开战斗记录主面板：分段列表、表格、曲线、日志导入都在那里
+            if (GUI.Button(new Rect(headRect.x, headRect.y, LogBtnW, 17f), Strings.BtnLog))
+                MainPanel.Toggle();
 
             var btnW = 46f;
+            var titleX = headRect.x + LogBtnW + 6f;
+            Shadowed(new Rect(titleX, headRect.y, headRect.xMax - btnW * 2f - 8f - titleX, headRect.height),
+                     $"{Strings.EncounterTitle(enc)}   {duration:0.0}s   {Short(total)}   " +
+                     $"{Short(duration > 0d ? total / duration : 0d)}/s", _header);
+
             if (GUI.Button(new Rect(headRect.xMax - btnW * 2f - 4f, headRect.y, btnW, 17f),
                            ViewLabel(_view)))
             {
@@ -203,7 +216,7 @@ namespace TbhCombatTracker
             {
                 var at = new Rect(Pad + i * (CardW + CardGap), top, CardW, cardH);
                 DrawCard(rows[i], at, total, max);
-                HandleCardClick(at, rows[i].InstanceId);
+                HandleCardClick(at, rows[i]);
             }
 
             // 整个窗口都能拖：按钮和其它控件会先消费掉自己的点击，不冲突
@@ -216,8 +229,9 @@ namespace TbhCombatTracker
         private static int _pressedId;
         private static bool _pressing;
 
-        private static void HandleCardClick(Rect r, int id)
+        private static void HandleCardClick(Rect r, SourceStats s)
         {
+            var id = s.InstanceId;
             var e = Event.current;
             if (e == null || e.button != 0) return;
 
@@ -233,7 +247,7 @@ namespace TbhCombatTracker
                 // 位移超过几像素就当成拖窗口，不是点击。
                 // 这里不调 e.Use()——消费掉会让 DragWindow 收不到抬起事件，窗口可能卡在拖拽态。
                 if (r.Contains(e.mousePosition) && (e.mousePosition - _pressPos).sqrMagnitude <= 25f)
-                    DetailWindow.Open(id, _view);
+                    DetailWindow.Open(id, _view, Strings.SourceName(s));
             }
         }
 
@@ -245,7 +259,7 @@ namespace TbhCombatTracker
             var y = at.y;
 
             // 名字
-            Shadowed(new Rect(at.x, y, CardW, NameH), s.Name ?? "?", _name);
+            Shadowed(new Rect(at.x, y, CardW, NameH), Strings.SourceName(s), _name);
             y += NameH;
 
             // 主体平行四边形：整块按职能上色（对应 .data-items:before 的 rgba(...,.5)）
@@ -275,7 +289,7 @@ namespace TbhCombatTracker
             {
                 // 治疗没有暴击这一说，换成"主要来源 + 次数"更有信息量
                 var top = s.TopHealKind;
-                var lead = top ?? Strings.HitsCount(s.Hits);
+                var lead = top >= 0 ? Healing.KindName(top) : Strings.HitsCount(s.Hits);
                 Shadowed(new Rect(at.x, y, CardW - 6f, DetailH),
                          $"{lead}   {Strings.HitsCount(s.Hits)}", _detail);
             }

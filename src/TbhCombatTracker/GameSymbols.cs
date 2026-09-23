@@ -96,20 +96,21 @@ namespace TbhCombatTracker
         // 全部允许传 null，返回 null。混淆的成员名只出现在这几行的右边。
 
         /// <summary>HeroHealth 服务的那个 Hero。判据：HeroHealth 上唯一的 Hero 字段（偏移 0x58）。</summary>
-        public static GHero HeroOf(GHeroHealth health) => health?.befe;
+        public static GHero HeroOf(GHeroHealth health) => health?.beff;
 
-        /// <summary>技能的施法者。判据：ActiveSkill 偏移 0x38 的 Unit 字段（HeroActiveSkill 0x78 还有一份 Hero，同一个人）。</summary>
-        public static GUnit OwnerOf(GActiveSkill skill) => skill?.bizb;
+        /// <summary>技能的施法者。判据：ActiveSkill 偏移 0x38 的 Unit 字段（HeroActiveSkill 0x78 还有一份 Hero，同一个人）。
+        /// ⚠ 1.2.8 里旧名 bizb 还在，但成了 0x2C 的 int——按名字查存在与否会误判，必须核对类型和偏移。</summary>
+        public static GUnit OwnerOf(GActiveSkill skill) => skill?.bizd;
 
         /// <summary>「治愈」这次的目标。判据：PriestHeal 偏移 0x80 的 Hero 字段——施法者在基类里已有两份，
         /// 子类这份只能是目标；PriestSanctuary 同一偏移放的是治疗场对象。**不是施法者，别拿去归因。**</summary>
-        public static GHero HealTargetOf(GPriestHeal skill) => skill?.birj;
+        public static GHero HealTargetOf(GPriestHeal skill) => skill?.birl;
 
         /// <summary>英雄的静态数据（职业、名字键）。判据：Hero.cache（未混淆）的类型上唯一的 HeroInfoData 字段（0x30）。</summary>
-        public static GHeroInfoData HeroInfoOf(GHero hero) => hero?.cache?.bgtb;
+        public static GHeroInfoData HeroInfoOf(GHero hero) => hero?.cache?.bgtc;
 
         /// <summary>技能的静态数据（名字键）。判据：ActiveSkill.skillCache（未混淆）的类型上唯一的 SkillInfoData 字段（0x10）。</summary>
-        public static GSkillInfoData SkillInfoOf(GActiveSkill skill) => skill?.skillCache?.bgur;
+        public static GSkillInfoData SkillInfoOf(GActiveSkill skill) => skill?.skillCache?.bgus;
 
         /// <summary>查本地化表，返回玩家当前语言。判据：GLoc 五个方法在 dump 里的顺序
         /// 对应 1.01.05 的 gft/gfu/gfv/gfw/gfx，第三个是走本地化表的那个。</summary>

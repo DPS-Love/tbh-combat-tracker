@@ -26,6 +26,12 @@ namespace TbhCombatTracker
             RaycastAnchor.Destroy();
         }
 
+        /// <summary>游戏正常退出：把战斗日志剩下的写完、写结束标记、关文件。</summary>
+        private void OnApplicationQuit()
+        {
+            try { EventLogWriter.Stop(); } catch { /* 退出阶段不吵闹 */ }
+        }
+
         private static bool _stageWatcherBroken;
 
         private void Update()
@@ -45,11 +51,8 @@ namespace TbhCombatTracker
 
             if (RaycastAnchor.Active)
             {
-                // 靶子跟着面板走；面板隐藏时缩到 0，别在看不见的地方抢鼠标
-                if (Overlay.Visible)
-                    RaycastAnchor.Sync(Overlay.CurrentRect, Overlay.CurrentScale);
-                else
-                    RaycastAnchor.Hide();
+                // 靶子跟着浮窗、明细窗口、主面板走；哪个没画着，对应的靶子就缩到 0
+                RaycastAnchor.Sync(Overlay.CurrentScale);
             }
             else
             {
@@ -65,9 +68,12 @@ namespace TbhCombatTracker
                 Mod.Log.Msg("统计已手动重置。");
             }
 
+            if (Hotkeys.Pressed(Mod.Config.MainPanelKey.Value))
+                MainPanel.Toggle();
+
             if (Hotkeys.Pressed(Mod.Config.ExportKey.Value))
             {
-                var path = DamageTracker.ExportCsv();
+                var path = DamageTracker.ExportCsv(DamageTracker.Current);
                 Mod.Log.Msg(path != null ? $"已导出：{path}" : "导出失败，见上方日志。");
             }
         }
@@ -75,6 +81,7 @@ namespace TbhCombatTracker
         private void OnGUI()
         {
             Overlay.Draw();
+            MainPanel.Draw();
         }
     }
 

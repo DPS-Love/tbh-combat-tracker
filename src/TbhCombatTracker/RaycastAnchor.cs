@@ -23,6 +23,7 @@ namespace TbhCombatTracker
         private static GameObject _root;
         private static RectTransform _area;
         private static RectTransform _area2;   // 明细窗口
+        private static RectTransform _area3;   // 战斗记录主面板
         private static bool _tried;
 
         /// <summary>创建成功且仍然存活时为 true；此时 Win32 那条路会自动让位。</summary>
@@ -68,6 +69,13 @@ namespace TbhCombatTracker
                 img2.raycastTarget = true;
                 _area2 = SetupArea(area2Go);
 
+                var area3Go = new GameObject("Area3");
+                area3Go.transform.SetParent(_root.transform, false);
+                var img3 = area3Go.AddComponent<Image>();
+                img3.color = new Color(0f, 0f, 0f, 0f);
+                img3.raycastTarget = true;
+                _area3 = SetupArea(area3Go);
+
                 Mod.Log.Msg("已创建 uGUI 射线靶：光标移到面板上时，游戏会自动解除点击穿透。");
                 return true;
             }
@@ -89,24 +97,32 @@ namespace TbhCombatTracker
             return rt;
         }
 
-        /// <summary>把射线靶同步到面板当前的屏幕矩形。</summary>
-        public static void Sync(Rect guiRect, float scale)
+        /// <summary>
+        /// 把射线靶同步到各窗口当前的屏幕矩形。每块只在对应窗口真的画着时占位：
+        /// 浮窗收起（F9）时明细窗口也不画，主面板则是独立开关的。
+        /// </summary>
+        public static void Sync(float scale)
         {
             if (!Active) return;
 
             try
             {
-                Place(_area, guiRect, scale);
-
-                // 明细窗口开着时才占位
-                if (DetailWindow.IsOpen) Place(_area2, DetailWindow.CurrentRect, scale);
-                else if (_area2 != null) _area2.sizeDelta = Vector2.zero;
+                PlaceOrHide(_area, Overlay.Shown, Overlay.CurrentRect, scale);
+                PlaceOrHide(_area2, Overlay.Shown && DetailWindow.IsOpen, DetailWindow.CurrentRect, scale);
+                PlaceOrHide(_area3, MainPanel.Visible, MainPanel.CurrentRect, scale);
             }
             catch (Exception e)
             {
                 Mod.Log.Warning($"同步射线靶失败，已停用：{e.GetType().Name}");
                 Destroy();
             }
+        }
+
+        private static void PlaceOrHide(RectTransform rt, bool shown, Rect guiRect, float scale)
+        {
+            if (rt == null) return;
+            if (shown) Place(rt, guiRect, scale);
+            else rt.sizeDelta = Vector2.zero;
         }
 
         private static void Place(RectTransform rt, Rect guiRect, float scale)
@@ -126,6 +142,7 @@ namespace TbhCombatTracker
             {
                 _area.sizeDelta = Vector2.zero;
                 if (_area2 != null) _area2.sizeDelta = Vector2.zero;
+                if (_area3 != null) _area3.sizeDelta = Vector2.zero;
             }
             catch { /* 无所谓 */ }
         }
@@ -140,6 +157,7 @@ namespace TbhCombatTracker
             _root = null;
             _area = null;
             _area2 = null;
+            _area3 = null;
         }
     }
 }

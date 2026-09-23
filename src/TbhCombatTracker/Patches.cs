@@ -221,24 +221,26 @@ namespace TbhCombatTracker
             {
                 if (__instance == null) return;
 
-                // 只要怪物承的伤。pf(英雄) 若调了 base.gsi 也会走到这里，必须挡掉，否则重复计数。
+                // 只要怪物承的伤。英雄血条若调了 base 的实现也会走到这里，必须挡掉，否则重复计数。
                 if (__instance.TryCast<GMonsterHealth>() == null) return;
 
                 if (a >= 0f) return; // 正数是治疗
                 var amount = -a;
 
+                // 目标怪物也记进事件：现在的统计用不上，但以后要做"对 Boss 的伤害"之类的维度，
+                // 旧日志里就已经有这份数据了
+                var target = Naming.PlainRef(__instance, 'M');
+
                 // 攻击者可能为 null（陷阱、环境伤害、召唤物主人已死等）。
-                // 不能直接丢弃，否则总伤害对不上——归到"未知来源"。
+                // 不能直接丢弃，否则总伤害对不上——记成 id 0，面板上显示"未知来源"。
                 if (b == null)
                 {
-                    DamageTracker.RecordOutgoing(0, SourceIdentity.Plain(Strings.UnknownSource),
-                                                 amount, SkillTracker.For(0));
+                    DamageTracker.RecordOutgoing(default, target, amount, SkillTracker.For(0));
                     return;
                 }
 
-                var attackerId = b.GetInstanceID();
-                DamageTracker.RecordOutgoing(attackerId, Naming.For(b), amount,
-                                             SkillTracker.For(attackerId));
+                DamageTracker.RecordOutgoing(Naming.RefOf(b), target, amount,
+                                             SkillTracker.For(b.GetInstanceID()));
             }
             catch (Exception e)
             {
@@ -258,12 +260,10 @@ namespace TbhCombatTracker
 
                 if (a < 0f)
                 {
-                    // 承伤按挨打的那个英雄归因
-                    // 承伤也带上技能维度——明细窗口里能看出"被什么技能打的"。
-                    // 同样按英雄 id 归档，和治疗/输出保持同一套键。
-                    DamageTracker.RecordIncoming(HeroIdOf(__instance),
-                                                 Naming.ForHealth(__instance), -a,
-                                                 SkillTracker.For(0));
+                    // 承伤按挨打的那个英雄归因，同样按英雄 id 归档，和治疗/输出保持同一套键。
+                    // 也带上技能维度（明细里能看出"被什么技能打的"）和攻击者（进日志备用）。
+                    var attacker = b != null ? Naming.PlainRef(b, b.TryCast<GMonster>() != null ? 'M' : 'O') : default;
+                    DamageTracker.RecordIncoming(HeroRef(__instance), attacker, -a, SkillTracker.For(0));
                     return;
                 }
 
@@ -294,25 +294,24 @@ namespace TbhCombatTracker
                        || kind == HealKind.Sanctuary
                        || kind == HealKind.Skill;
 
-            if (isSkill && Healing.TryGetCaster(out var caster))
+            // 事件里 A 是被恢复的英雄，B 是归因到的施法者（0 = 自愈，算 A 自己的）。
+            //
+            // 【必须用英雄的实例 id，不能用血量组件的】
+            // 施法者那边用的是英雄 id（caster.InstanceId），被恢复的一方若用 health.GetInstanceID()
+            // 就成了两个不同的键，同一个牧师会在面板上裂成两张卡片——自愈一张、技能治疗一张。
+            var caster = default(UnitRef);
+            if (isSkill && Healing.TryGetCaster(out var c)) caster = Naming.RefOf(c);
+            else if (isSkill && Healing.TryGetLastCaster(out var last)) caster = Naming.RefOf(last);
+
+            // 判定用到的原始事实也记下：以后改进分类规则，旧日志也能重新分类
+            sbyte flagB = -1, flagC = -1;
+            if (Healing.InFunnel)
             {
-                DamageTracker.RecordHealing(caster.InstanceId, caster, amount, kind);
+                flagB = (sbyte)(Healing.FlagB ? 1 : 0);
+                flagC = (sbyte)(Healing.FlagC ? 1 : 0);
             }
-            else if (isSkill && Healing.TryGetLastCaster(out var last))
-            {
-                DamageTracker.RecordHealing(last.InstanceId, last, amount, kind);
-            }
-            else
-            {
-                // 自愈类（自然回复 / 战斗回复 / 处决回复）归被恢复的单位自己。
-                //
-                // 【必须用英雄的实例 id，不能用血量组件的】
-                // 技能治疗那两条分支用的是英雄 id（caster.InstanceId），
-                // 这里若用 health.GetInstanceID() 就成了两个不同的键，
-                // 同一个牧师会在面板上裂成两张卡片——自愈一张、技能治疗一张。
-                var who = Naming.ForHealth(health);
-                DamageTracker.RecordHealing(HeroIdOf(health), who, amount, kind);
-            }
+            DamageTracker.RecordHealing(HeroRef(health), caster, amount, kind,
+                                        flagB, flagC, (int)Healing.CurrentKind);
 
             if (Mod.Config.HealingDebug.Value)
             {
@@ -345,6 +344,16 @@ namespace TbhCombatTracker
             catch { /* 退回组件 id 总比崩了强 */ }
 
             return health != null ? health.GetInstanceID() : 0;
+        }
+
+        /// <summary>英雄血条背后那个英雄，作为事件里的单位（id 用英雄的，见 <see cref="HeroIdOf"/>）。</summary>
+        private static UnitRef HeroRef(GHeroHealth health)
+        {
+            var who = Naming.ForHealth(health);
+            return new UnitRef
+            {
+                Id = HeroIdOf(health), Kind = 'H', ClassType = who.ClassType, Key = who.Key, Name = who.Name,
+            };
         }
 
         // ---- 三个上游括号。用 __state 保存/恢复，天然支持嵌套 ----
@@ -593,6 +602,9 @@ namespace TbhCombatTracker
         public int ClassType;
         /// <summary>来源单位的实例 id，0 表示没有具体单位（环境伤害、自然回复等）。</summary>
         public int InstanceId;
+        /// <summary>稳定键：GameObject 名去掉 (Clone)，如 Hero_201。写进日志，不随语言变。</summary>
+        public string Key;
+        public bool IsHero;
 
         public static SourceIdentity Plain(string name) => new SourceIdentity { Name = name };
     }
@@ -618,6 +630,41 @@ namespace TbhCombatTracker
             return identity;
         }
 
+        /// <summary>单位 → 事件里的单位引用（英雄带职业和本地化名）。</summary>
+        public static UnitRef RefOf(GUnit unit) => RefOf(For(unit));
+
+        public static UnitRef RefOf(SourceIdentity s) => new UnitRef
+        {
+            Id = s.InstanceId, Kind = s.IsHero ? 'H' : 'O', ClassType = s.ClassType, Key = s.Key, Name = s.Name,
+        };
+
+        /// <summary>
+        /// 怪物这类数量多、只需要名字的单位：id + GameObject 名，不做英雄解析、不加重名后缀。
+        /// 怪物一波一波地刷，缓存满了直接清空。
+        /// </summary>
+        public static UnitRef PlainRef(UnityEngine.Object o, char kind)
+        {
+            var id = o.GetInstanceID();
+            string name;
+            lock (PlainNames)
+            {
+                PlainNames.TryGetValue(id, out name);
+            }
+            if (name == null)
+            {
+                name = Clean(SafeGameObjectName(o)) ?? $"Unit#{id}";
+                lock (PlainNames)
+                {
+                    if (PlainNames.Count > 8192) PlainNames.Clear();
+                    PlainNames[id] = name;
+                }
+            }
+            return new UnitRef { Id = id, Kind = kind, Key = name, Name = name };
+        }
+
+        private static readonly System.Collections.Generic.Dictionary<int, string> PlainNames =
+            new System.Collections.Generic.Dictionary<int, string>();
+
         public static SourceIdentity ForHealth(GUnitHealth health)
         {
             var id = health.GetInstanceID();
@@ -632,9 +679,16 @@ namespace TbhCombatTracker
             // 输出面板和承伤面板拿到的是同一份身份，不会被重名后缀判成两个人。
             SourceIdentity identity;
             var hero = SafeHeroOf(health);
-            identity = hero != null
-                ? For(hero)
-                : SourceIdentity.Plain(Clean(SafeGameObjectName(health)) ?? $"Unit#{id}");
+            if (hero != null)
+            {
+                identity = For(hero);
+            }
+            else
+            {
+                identity = SourceIdentity.Plain(Clean(SafeGameObjectName(health)) ?? $"Unit#{id}");
+                identity.Key = identity.Name;
+                identity.InstanceId = id;
+            }
 
             lock (Cache) Cache[id] = identity;
             return identity;
@@ -672,7 +726,7 @@ namespace TbhCombatTracker
                 if (n > 0) label = $"{label}#{n + 1}";
             }
 
-            return new SourceIdentity { Name = label, ClassType = classType };
+            return new SourceIdentity { Name = label, ClassType = classType, Key = baseName, IsHero = hero != null };
         }
 
         /// <summary>

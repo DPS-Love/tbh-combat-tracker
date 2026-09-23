@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using UnityEngine;
 
 
 namespace TbhCombatTracker
@@ -24,9 +23,9 @@ namespace TbhCombatTracker
         /// <summary>备忘的有效期。正常情况下工厂求值和伤害落地就隔几行代码，给足冗余即可。</summary>
         private const float MemoSeconds = 0.5f;
 
-        private static string _skill;
+        private static SkillRef _skill;
         private static int _ownerId;
-        private static float _at;
+        private static double _at;
 
         /// <summary>技能生成 DamageInfo 时记一笔。</summary>
         public static void Remember(GActiveSkill skill)
@@ -35,10 +34,10 @@ namespace TbhCombatTracker
 
             try
             {
-                _skill = NameOf(skill);
+                _skill = RefOf(skill);
                 var owner = GameSymbols.OwnerOf(skill);
                 _ownerId = owner != null ? owner.GetInstanceID() : 0;
-                _at = Time.realtimeSinceStartup;
+                _at = DamageTracker.Now;
             }
             catch
             {
@@ -47,29 +46,29 @@ namespace TbhCombatTracker
         }
 
         /// <summary>
-        /// 取这次伤害对应的技能名。
+        /// 取这次伤害对应的技能。
         /// 会校验攻击者是否对得上——技能工厂和伤害落地之间理论上不会插进别人，
         /// 但真插进来了宁可标成未知，也不要张冠李戴。
         /// </summary>
-        public static string For(int attackerId)
+        public static SkillRef For(int attackerId)
         {
             if (_skill == null) return null;
             if (_ownerId != 0 && attackerId != 0 && _ownerId != attackerId) return null;
-            if (Time.realtimeSinceStartup - _at > MemoSeconds) return null;
+            if (DamageTracker.Now - _at > MemoSeconds) return null;
             return _skill;
         }
 
-        /// <summary>类名 -> 显示名的缓存。译文查询和字符串处理都不便宜，一个技能只做一次。</summary>
-        private static readonly Dictionary<string, string> NameCache =
-            new Dictionary<string, string>(StringComparer.Ordinal);
+        /// <summary>类名 -> 技能的缓存。译文查询和字符串处理都不便宜，一个技能只做一次。</summary>
+        private static readonly Dictionary<string, SkillRef> NameCache =
+            new Dictionary<string, SkillRef>(StringComparer.Ordinal);
 
         /// <summary>
-        /// 技能显示名。优先走游戏的本地化——<c>ActiveSkill.skillCache</c>(wl)
+        /// 技能的稳定键和显示名。显示名优先走游戏的本地化——<c>ActiveSkill.skillCache</c>
         /// 里挂着 <c>SkillInfoData</c>，它的 <c>SkillNameKey</c> 就是权威的本地化键
-        /// （和英雄的 <c>HeroNameKey</c> 同一套路，字段名都没被混淆）。
-        /// 查不到才退回类名整理出来的英文名。
+        /// （和英雄的 <c>HeroNameKey</c> 同一套路，字段名都没被混淆），查不到才退回类名整理出来的英文名。
+        /// 稳定键写进日志：SkillNameKey 与语言无关，没有就用技能类名（类名同样没被混淆）。
         /// </summary>
-        private static string NameOf(GActiveSkill skill)
+        private static SkillRef RefOf(GActiveSkill skill)
         {
             var typeName = skill.GetIl2CppType().Name;
 
@@ -78,18 +77,19 @@ namespace TbhCombatTracker
                 if (NameCache.TryGetValue(typeName, out var hit)) return hit;
             }
 
-            string name = null;
+            string key = null, name = null;
             try
             {
-                var key = GameSymbols.SkillInfoOf(skill)?.SkillNameKey;
+                key = GameSymbols.SkillInfoOf(skill)?.SkillNameKey;
                 name = Localize.TryGet(key);
             }
             catch { /* 没有技能数据的（怪物普攻之类）走兜底 */ }
 
             if (string.IsNullOrWhiteSpace(name)) name = PrettyName(typeName);
+            var r = new SkillRef { Key = string.IsNullOrWhiteSpace(key) ? typeName : key, Name = name };
 
-            lock (NameCache) NameCache[typeName] = name;
-            return name;
+            lock (NameCache) NameCache[typeName] = r;
+            return r;
         }
 
         /// <summary>

@@ -4,11 +4,13 @@
 
 A combat statistics panel for **TBH: Task Bar Hero**. A horizontal overlay that breaks down damage dealt,
 damage taken and healing per hero; click any hero for a pie-chart breakdown by skill and by damage type;
-statistics segment automatically per stage; CSV export. The panel text follows the game's language.
+statistics segment automatically per stage; CSV export. An ACT-style combat log window lets you review every
+encounter, and each session's combat events are saved to a log that can be imported and re-parsed.
+The panel text follows the game's language.
 
 **Read-only statistics. It never modifies any game value.**
 
-Currently aligned with game **1.2.6**, BepInEx **6.0.0-be.785**.
+Currently aligned with game **1.2.8**, BepInEx **6.0.0-be.785**.
 
 ---
 
@@ -58,16 +60,37 @@ Launch the game.
 
 | Key | Action |
 |---|---|
-| `F9` | Show / hide the panel |
-| `F10` | Reset the current statistics |
-| `F11` | Export a CSV to `BepInEx\TbhCombatTracker\` |
+| `F9` | Show / hide the overlay |
+| `F8` | Open / close the combat log window |
+| `F10` | Reset the current statistics (the old encounter moves to the combat log) |
+| `F11` | Export the current encounter as a CSV to `BepInEx\TbhCombatTracker\` |
 
-- The title-bar buttons switch between the **Damage / Taken / Healing** views; the whole panel can be dragged
+- The overlay's title-bar buttons switch between the **Damage / Taken / Healing** views; the whole overlay can be dragged
 - **Click a hero card** for details: basic attacks vs. each skill, and damage type / element shares
-- Statistics segment per stage by default; the title shows the current stage name
+- Statistics segment per stage by default; the title shows the current stage name, with a repeat number when the same stage is auto-repeated, e.g. `Stage 3-2 #2`
 
-The game window is normally click-through. While the cursor is over the panel, click-through is lifted so
+The game window is normally click-through. While the cursor is over a panel, click-through is lifted so
 you can operate it, and restored as soon as the cursor leaves, so normal desktop use is unaffected.
+
+### Combat log window
+
+Open it with **Log** at the far left of the overlay's title bar (or `F8`). It is modelled on ACT's main window:
+
+- **Left**: every encounter of this session, newest first; the one in progress is marked **Live**. Short fights
+  such as bosses can be examined after they end by clicking them
+- **Right**: the selected encounter — a combatant table for Damage / Taken / Healing (total, share, per second,
+  crit, hits, max), each combatant's per-second curve over time, and the selected combatant's breakdown by skill /
+  damage type / element (healing: by source) as a table and a pie chart
+- **Export CSV** at the top exports the selected encounter; **Log folder** opens the folder the logs are kept in
+
+### Combat logs
+
+Every session writes its combat **events** (each hit, heal, stage change…) to a log:
+`BepInEx\TbhCombatTracker\logs\tbh-date-time.tbhlog.gz`, about 0.2 MB per hour in practice, kept for 30 days by default.
+
+**Import** in the combat log window opens any of these logs and **re-parses it with the current version**, so
+statistics added in later updates also show up for old logs. Logs from other players can be imported too — just put
+them in that folder. The format is documented in [combat log format](https://github.com/DPS-Love/tbh-combat-tracker/blob/main/docs/eventlog.md) (Chinese).
 
 ## Configuration
 
@@ -77,10 +100,13 @@ Restart the game after editing it.
 | Setting | Default | Description |
 |---|---|---|
 | `SegmentByStage` | true | Segment per stage; when off, a new segment starts after `IdleResetSeconds` seconds without damage |
+| `HistorySize` | 200 | How many encounters of this session the combat log window keeps (older ones stay in the log file); `0` for no limit (max 1000) |
 | `TrackIncoming` / `TrackHealing` / `TrackSkills` | true | Damage taken / healing / per-skill breakdown |
 | `UiScale` | 1.0 | Panel scale |
 | `SkewDegrees` | -30 | Skew angle of the hero cards; `0` for plain rectangles |
 | `FixClickThrough` | true | When off, the panel is display-only and clicks pass through it |
+| `LogEvents` | true | Write combat logs; when off, the combat log window only has this session |
+| `LogRetentionDays` | 30 | Days to keep combat logs; `0` keeps them forever |
 | `CheckUpdates` | true | Check for updates at startup (see below) |
 | `AutoInstall` | false | Download and replace the DLL automatically when a new version is found; takes effect on restart |
 

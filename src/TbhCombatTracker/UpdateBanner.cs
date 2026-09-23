@@ -20,6 +20,19 @@ namespace TbhCombatTracker
         private static GUIStyle _title, _sub, _btn;
         private static Texture2D _white;
 
+        /// <summary>清单里的版本比本机新。「更新」「下载页」只在这时（或被点名时）才有意义。
+        /// v0.2.5 在游戏 1.2.8 上踩过坑：横幅因"游戏比构建时新"而出现，按钮却只看清单有没有
+        /// 下载地址，于是把和本机一模一样的 v0.2.5 又下载替换了一遍。</summary>
+        private static bool UpdateAvailable =>
+            UpdateChecker.Current == UpdateChecker.State.UpdateAvailable;
+
+        private static bool ShowUpdate =>
+            UpdateAvailable && UpdateChecker.CanInstall && !UpdateChecker.Installed;
+
+        private static bool ShowRelease =>
+            (UpdateAvailable || UpdateChecker.CurrentBroken)
+            && !string.IsNullOrEmpty(UpdateChecker.ReleaseUrl);
+
         private static bool Urgent =>
             UpdateChecker.CurrentBroken
             || (UpdateChecker.Current == UpdateChecker.State.UpdateAvailable && UpdateChecker.LatestCritical);
@@ -91,7 +104,7 @@ namespace TbhCombatTracker
                     Plugin.DisableForThisSession();
             }
 
-            if (UpdateChecker.CanInstall && !UpdateChecker.Installed)
+            if (ShowUpdate)
             {
                 x -= bw + 4f;
                 var label = UpdateChecker.Installing
@@ -103,7 +116,7 @@ namespace TbhCombatTracker
                 GUI.enabled = true;
             }
 
-            if (!string.IsNullOrEmpty(UpdateChecker.ReleaseUrl))
+            if (ShowRelease)
             {
                 x -= bw + 4f;
                 if (GUI.Button(new Rect(x, by, bw, bh), Strings.BtnRelease, _btn))
@@ -115,8 +128,8 @@ namespace TbhCombatTracker
         {
             var w = 54f * 0.55f + 4f;
             if (UpdateChecker.CurrentBroken && !Plugin.Disabled) w += 58f;
-            if (UpdateChecker.CanInstall && !UpdateChecker.Installed) w += 58f;
-            if (!string.IsNullOrEmpty(UpdateChecker.ReleaseUrl)) w += 58f;
+            if (ShowUpdate) w += 58f;
+            if (ShowRelease) w += 58f;
             return w;
         }
 
@@ -135,7 +148,8 @@ namespace TbhCombatTracker
             if (Plugin.Disabled)
                 return (new Color(0.30f, 0.30f, 0.34f, 0.92f),
                     Strings.DisabledTitle,
-                    UpdateChecker.CanInstall ? Strings.DisabledHintUpdate : Strings.DisabledHintRelease);
+                    ShowUpdate ? Strings.DisabledHintUpdate
+                               : UpdateAvailable ? Strings.DisabledHintRelease : "");
 
             if (UpdateChecker.CurrentBroken)
                 return (red,
