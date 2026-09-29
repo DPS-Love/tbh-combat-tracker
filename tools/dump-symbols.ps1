@@ -19,7 +19,7 @@ if (-not (Test-Path $dumper)) {
 找不到 $dumper
 去 https://github.com/Perfare/Il2CppDumper/releases 下载 Il2CppDumper-win-<版本>.zip
 （不带 -netX 的那个是自包含版，不需要装 .NET 运行时），解压到 tools\Il2CppDumper\。
-本机走公司网络时记得挂 Clash 代理：`$env:HTTPS_PROXY='http://127.0.0.1:7897'
+网络需要代理时先设置 `$env:HTTPS_PROXY='http://<主机>:<端口>'
 "@
 }
 

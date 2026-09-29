@@ -23,7 +23,7 @@ param(
     [string]$GameDir = "D:\Steam\steamapps\common\TaskbarHero",
     [string]$Zip,
     [string]$Build = "785",
-    [string]$Proxy = "http://127.0.0.1:7897",
+    [string]$Proxy = $env:HTTPS_PROXY,
     [switch]$Uninstall
 )
 
@@ -71,17 +71,20 @@ if (-not (Test-Path $Zip)) {
     Write-Host "本地没有安装包，尝试下载 BE 构建 #$Build …" -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path (Split-Path $Zip) | Out-Null
 
+    # 没给代理就不传 -Proxy，让 Invoke-WebRequest 按系统设置走
+    $proxyArgs = if ($Proxy) { @{ Proxy = $Proxy } } else { @{} }
+
     # BE 构建的文件名带 commit hash，先抓列表页解析出准确的链接
     $listUrl = "https://builds.bepinex.dev/projects/bepinex_be"
     try {
-        $html = Invoke-WebRequest -Uri $listUrl -Proxy $Proxy -UseBasicParsing -TimeoutSec 30
+        $html = Invoke-WebRequest -Uri $listUrl @proxyArgs -UseBasicParsing -TimeoutSec 30
     }
     catch {
         Write-Error @"
 拿不到 BepInEx 构建列表：$($_.Exception.Message)
-本机走公司网络时需要 Clash 代理（默认 $Proxy）。
+网络需要代理时用 -Proxy 或设置 HTTPS_PROXY。
 只试一次就放弃是故意的——手动重试一下通常就好了：
-    pwsh tools/install-bepinex.ps1 -Proxy $Proxy
+    pwsh tools/install-bepinex.ps1$(if ($Proxy) { " -Proxy $Proxy" })
 或者自己去 $listUrl 下载 IL2CPP-win-x64 包，再用 -Zip 指过来。
 "@
     }
@@ -92,7 +95,7 @@ if (-not (Test-Path $Zip)) {
 
     $url = "https://builds.bepinex.dev$href"
     Write-Host "  $url" -ForegroundColor DarkGray
-    Invoke-WebRequest -Uri $url -OutFile $Zip -Proxy $Proxy -UseBasicParsing -TimeoutSec 300
+    Invoke-WebRequest -Uri $url -OutFile $Zip @proxyArgs -UseBasicParsing -TimeoutSec 300
 }
 
 Write-Host "安装包: $Zip ($([math]::Round((Get-Item $Zip).Length / 1MB, 1)) MB)" -ForegroundColor Cyan

@@ -160,7 +160,7 @@ if ($Upload) {
 
     git -C $root add manifest.json
     git -C $root commit -q -m "manifest: v$version" 2>$null
-    git -C $root -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 push origin main
+    git -C $root push origin main
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "manifest.json 已提交但推送失败。手动重试：git push origin main"
     }
