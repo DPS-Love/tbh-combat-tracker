@@ -308,6 +308,8 @@ pwsh tools/package-release.ps1                 # 只打包：build/release/TbhCo
 
 包内：`BepInEx/plugins/TbhCombatTracker.dll`、`安装说明.md`（即 README）、`Install Guide.md`（即 README.en.md）、`反作弊说明.md`、`LICENSE`。
 **不打包 BepInEx 本体**（LGPL 独立项目，让用户自己去官方构建站拿）。
+复制文档时改写相对链接：指向包里也有的文件换成包里的名字，其余（比如 README 开头的预览图）换成这个版本标签在
+GitHub 上的地址。README 里照常写相对路径就行；往包里加文档时，在脚本的 `$docs` 表里加一行。
 
 发新版本：
 

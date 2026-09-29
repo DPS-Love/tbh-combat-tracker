@@ -92,14 +92,48 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 Copy-Item $dll (Join-Path $stage 'BepInEx\plugins\') -Force
 
-# README 就是面向玩家的安装说明；包里用中文名，收包的人一眼知道先看哪个。英文版一并带上
-Copy-Item (Join-Path $root 'README.md') (Join-Path $stage '安装说明.md') -Force
-Copy-Item (Join-Path $root 'README.en.md') (Join-Path $stage 'Install Guide.md') -Force
-Copy-Item (Join-Path $root 'docs\anticheat.md') (Join-Path $stage '反作弊说明.md') -Force
-
 $license = Join-Path $root 'LICENSE'
 if (Test-Path $license) { Copy-Item $license $stage -Force }
 else { Write-Warning '仓库里没有 LICENSE，发布包里也就没有。公开分享前建议补一个。' }
+
+# 包里的文档：仓库里的路径 -> 包里的文件名。README 就是面向玩家的安装说明，
+# 包里用中文名，收包的人一眼知道先看哪个；英文版一并带上
+$docs = [ordered]@{
+    'README.md'         = '安装说明.md'
+    'README.en.md'      = 'Install Guide.md'
+    'docs/anticheat.md' = '反作弊说明.md'
+}
+
+# 文档里的相对链接到了包里大多是坏的（包里没有 docs/，README 也改了名），复制时改写：
+# 指向包里也有的文件就换成包里的名字，其余指向这个版本标签在 GitHub 上的地址（图片走 raw）。
+# 规则是通用的，改 README 不用动这里；往包里加文档时在上面的表里加一行就行
+$tag = "v$version"
+$repoUrl = 'https://github.com/DPS-Love/tbh-combat-tracker'
+function Convert-DocLinks([string]$text, [string]$from) {
+    $dir = Split-Path $from -Parent
+    $base = if ($dir) { Join-Path $root $dir } else { $root }
+    [regex]::Replace($text, '(!?)\[([^\]\r\n]*)\]\(([^)\s]+)\)', {
+        param($m)
+        $image = $m.Groups[1].Value -eq '!'
+        $target = $m.Groups[3].Value
+        if ($target -match '^([a-z][a-z0-9+.-]*:|#)') { return $m.Value }   # 绝对地址、页内锚点不动
+        $path, $anchor = $target.Split('#', 2)
+        # 相对于这份文档所在的目录，解析成仓库里的路径
+        $rel = [IO.Path]::GetRelativePath($root, [IO.Path]::GetFullPath((Join-Path $base $path))) -replace '\\', '/'
+        # 包里的文件名带空格（Install Guide.md），链接地址里的空格要编码，不然不算链接
+        $new = if ($docs.Contains($rel)) { $docs[$rel] -replace ' ', '%20' }
+               elseif (-not $image -and (Test-Path -LiteralPath (Join-Path $stage $rel))) { $rel }
+               elseif ($image) { "https://raw.githubusercontent.com/DPS-Love/tbh-combat-tracker/$tag/$rel" }
+               else { "$repoUrl/blob/$tag/$rel" }
+        if ($anchor) { $new += "#$anchor" }
+        "$($m.Groups[1].Value)[$($m.Groups[2].Value)]($new)"
+    })
+}
+
+foreach ($d in $docs.GetEnumerator()) {
+    $text = Get-Content (Join-Path $root $d.Key) -Raw -Encoding UTF8
+    Set-Content -LiteralPath (Join-Path $stage $d.Value) -Value (Convert-DocLinks $text $d.Key) -Encoding UTF8 -NoNewline
+}
 
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
@@ -114,7 +148,6 @@ if ($Upload) {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
         Write-Error '要 -Upload 得先装 GitHub CLI：https://cli.github.com/'
     }
-    $tag = "v$version"
     Write-Host "`n上传到 Release $tag …" -ForegroundColor Cyan
 
     # 标签还没有对应的 Release 就现建一个（正常流程里 CI 已经建好草稿了）

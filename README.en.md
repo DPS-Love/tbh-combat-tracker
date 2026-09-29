@@ -12,6 +12,8 @@ Every setting can be changed in game. The interface text follows the game's lang
 
 Currently aligned with game **1.2.8**, BepInEx **6.0.0-be.785**.
 
+![Overlay and combat log window](docs/images/preview-en.png)
+
 ---
 
 ## Download
