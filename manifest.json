@@ -1,15 +1,15 @@
 {
   "schema": 1,
   "latest": {
-    "version": "0.4.0",
+    "version": "0.4.1",
     "gameVersion": "1.2.8",
-    "url": "https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/v0.4.0",
-    "download": "https://github.com/DPS-Love/tbh-combat-tracker/releases/download/v0.4.0/TbhCombatTracker-v0.4.0.zip",
-    "sha256": "db724e9ef6ecafa84793de35219b0fbc7bfb6bf8c60402b462dc7de11a177a7b",
+    "url": "https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/v0.4.1",
+    "download": "https://github.com/DPS-Love/tbh-combat-tracker/releases/download/v0.4.1/TbhCombatTracker-v0.4.1.zip",
+    "sha256": "f6c598af41b88e5a82fd4985edb0893a8a5fdcca4ff0ee37cebf35566cc8030e",
     "critical": false,
     "notes": {
-      "zh": "界面重做；设置界面、逐条事件、按目标拆分",
-      "en": "Rebuilt UI; settings window, event log, per-target breakdown"
+      "zh": "环形图缝隙修复；拆分表可滚动",
+      "en": "Donut gap fix; scrollable breakdown table"
     }
   },
   "broken": [
