@@ -4,7 +4,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>TbhCombatTracker</AssemblyName>
     <RootNamespace>TbhCombatTracker</RootNamespace>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <EnableDynamicLoading>false</EnableDynamicLoading>
 
     <Authors>DPS Love Project</Authors>
@@ -49,7 +49,8 @@
     <Reference Include="$(BepInExInteropDir)\UnityEngine.IMGUIModule.dll">
       <Private>false</Private>
     </Reference>
-    <!-- 只为了那个隐形射线靶：让游戏自己的 EventSystem.RaycastAll 能命中我们 -->
+    <!-- 界面是 uGUI 画的：Canvas / Image / Text / RectMask2D。窗口底板是射线靶，游戏自己的
+         EventSystem.RaycastAll 打到它就会解除点击穿透 -->
     <Reference Include="$(BepInExInteropDir)\UnityEngine.UI.dll">
       <Private>false</Private>
     </Reference>

@@ -19,7 +19,10 @@ namespace TbhCombatTracker
             /// <summary>按关卡信号分段；关掉则按 <see cref="IdleSeconds"/> 的空闲时间分段。</summary>
             public bool SegmentByStage = true;
             public float IdleSeconds = 8f;
-            /// <summary>最多保留几段已结束的战斗，0 = 不限。只给实时会话用，导入的日志全部保留。</summary>
+            /// <summary>
+            /// 最多给几段已结束的战斗留着详细数据，0 = 不限。超出的只卸载详细数据，
+            /// 摘要仍在 <see cref="Session.Records"/> 里。只给实时会话用，导入的日志全部保留。
+            /// </summary>
             public int MaxEncounters;
         }
 
@@ -42,7 +45,7 @@ namespace TbhCombatTracker
         public Action<Encounter> Started;
         /// <summary>刚开始的那段被更正了标题。</summary>
         public Action<Encounter> Relabeled;
-        /// <summary>一段结束、收进 <see cref="Session.Encounters"/>。</summary>
+        /// <summary>一段结束、收进 <see cref="Session.Records"/>。</summary>
         public Action<Encounter> Closed;
 
         private int _encounterCounter = 1;
@@ -79,19 +82,21 @@ namespace TbhCombatTracker
                     break;
 
                 case EventKind.Damage:
+                    // 对手是被打的怪物（B）
                     Add(TrackerView.Outgoing, e.A, e.T, e.Amount, e.Crit, e.DamageType, e.Attribute,
-                        SkillName(e.Ability), -1);
+                        SkillName(e.Ability), -1, CounterpartKey(e.B));
                     break;
 
                 case EventKind.Taken:
-                    // 承伤按挨打的英雄归因（A），攻击者（B）目前只进日志
+                    // 承伤按挨打的英雄归因（A），对手是攻击者（B）
                     Add(TrackerView.Incoming, e.A, e.T, e.Amount, e.Crit, e.DamageType, e.Attribute,
-                        SkillName(e.Ability), -1);
+                        SkillName(e.Ability), -1, CounterpartKey(e.B));
                     break;
 
                 case EventKind.Heal:
-                    // 技能治疗归施法者（B），自愈类（B = 0）归被恢复的英雄自己（A）
-                    Add(TrackerView.Healing, e.B != 0 ? e.B : e.A, e.T, e.Amount, -1, -1, -1, null, e.HealKind);
+                    // 技能治疗归施法者（B），自愈类（B = 0）归被恢复的英雄自己（A）；对手是被恢复的英雄
+                    Add(TrackerView.Healing, e.B != 0 ? e.B : e.A, e.T, e.Amount, -1, -1, -1, null, e.HealKind,
+                        CounterpartKey(e.A));
                     break;
 
                 case EventKind.StageName:
@@ -108,6 +113,30 @@ namespace TbhCombatTracker
                 case EventKind.Reset:
                     Roll(e.T);
                     break;
+
+                case EventKind.Config:
+                    ApplyConfig(e.Key, e.Text);
+                    break;
+            }
+        }
+
+        /// <summary>设置名，写日志的一方和这里共用。</summary>
+        public const string ConfigSegmentByStage = "segmentByStage";
+        public const string ConfigIdleSeconds = "idleSeconds";
+
+        /// <summary>日志里记下的设置盖过调用方给的默认值：重新解析时按当时的设置切段。不认识的设置名忽略。</summary>
+        private void ApplyConfig(string key, string value)
+        {
+            switch (key)
+            {
+                case ConfigSegmentByStage:
+                    Opt.SegmentByStage = value == "1";
+                    break;
+                case ConfigIdleSeconds:
+                    if (float.TryParse(value, System.Globalization.NumberStyles.Float,
+                                       System.Globalization.CultureInfo.InvariantCulture, out var idle))
+                        Opt.IdleSeconds = idle;
+                    break;
             }
         }
 
@@ -117,7 +146,8 @@ namespace TbhCombatTracker
             var c = Session.Current;
             if (c != null && !c.IsEmpty)
             {
-                Session.Encounters.Add(c);
+                Session.Records.Add(EncounterRecord.Of(c));
+                UnloadOld();
                 Closed?.Invoke(c);
             }
             Session.Current = null;
@@ -133,8 +163,31 @@ namespace TbhCombatTracker
             return "#" + aid;
         }
 
+        /// <summary>对手分组键的前缀：怪物按种类（稳定键），其它单位按显示名。界面按前缀决定怎么显示。</summary>
+        public const string CounterpartMonster = "M:", CounterpartUnit = "U:";
+
+        private readonly Dictionary<int, string> _counterpartKeys = new Dictionary<int, string>();
+
+        /// <summary>
+        /// 对手的分组键。怪物用稳定键（<c>M:Monster_30043</c>）：同一种怪不管刷了多少只都归成一行，
+        /// 界面再拿它去查游戏里的怪物译名；英雄和其它单位用显示名（<c>U:游侠</c>）。
+        /// 没有具体单位（环境伤害、攻击者已消失）是空串。
+        /// </summary>
+        public string CounterpartKey(int id)
+        {
+            if (id == 0) return "";
+            if (_counterpartKeys.TryGetValue(id, out var key)) return key;
+            key = Session.Units.TryGetValue(id, out var u)
+                ? (u.Kind == 'M' ? CounterpartMonster + (u.Key ?? u.Name) : CounterpartUnit + (u.Name ?? u.Key))
+                : CounterpartUnit + "#" + id;
+            // 怪物一波一波地刷，id 越攒越多；满了清掉重算，便宜
+            if (_counterpartKeys.Count > 20000) _counterpartKeys.Clear();
+            _counterpartKeys[id] = key;
+            return key;
+        }
+
         private void Add(TrackerView view, int id, double t, float amount, int crit, int type, int attr,
-                         string skill, int healKind)
+                         string skill, int healKind, string counterpart)
         {
             // 0 和 NaN 一律丢弃——它们会把 DPS 和暴击率算歪
             if (float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f) return;
@@ -167,6 +220,7 @@ namespace TbhCombatTracker
             s.PerSecond[sec] += amount;
 
             if (skill != null) s.AddSkill(skill, amount, crit == 1);
+            if (counterpart != null) s.AddTarget(counterpart, amount, crit == 1);
 
             if (view == TrackerView.Healing)
             {
@@ -206,6 +260,7 @@ namespace TbhCombatTracker
                 Name = !string.IsNullOrEmpty(e.Text) ? e.Text : e.Key,
             };
             Session.Units[u.Id] = u;
+            _counterpartKeys.Remove(u.Id);   // 名字 / 种类可能变了，下次用到时重算
 
             // 首次记录时名字 / 职业可能还没解析出来，后面补上
             var c = Session.Current;
@@ -348,21 +403,32 @@ namespace TbhCombatTracker
             Started?.Invoke(c);
         }
 
-        /// <summary>结束当前段、另起一段。旧段非空就收进列表，超出上限丢最旧的。</summary>
+        /// <summary>
+        /// 超出 <see cref="Options.MaxEncounters"/> 的旧段卸载详细数据（从新往旧数，留最近的那些）。
+        /// 摘要不动，列表照样完整。上限调大不会把已卸载的装回来——要看时从日志重新载入。
+        /// </summary>
+        public void UnloadOld()
+        {
+            var max = Opt.MaxEncounters;
+            if (max <= 0) return;
+
+            var kept = 0;
+            for (var i = Session.Records.Count - 1; i >= 0; i--)
+            {
+                var r = Session.Records[i];
+                if (r.Detail == null) continue;
+                if (++kept > max) r.Detail = null;
+            }
+        }
+
+        /// <summary>结束当前段、另起一段。旧段非空就收进列表，超出上限的卸载详细数据。</summary>
         private void Roll(double t)
         {
             var old = Session.Current;
             if (old != null && !old.IsEmpty)
             {
-                Session.Encounters.Add(old);
-                if (Opt.MaxEncounters > 0)
-                {
-                    while (Session.Encounters.Count > Opt.MaxEncounters)
-                    {
-                        Session.Encounters.RemoveAt(0);
-                        Session.DroppedEncounters++;
-                    }
-                }
+                Session.Records.Add(EncounterRecord.Of(old));
+                UnloadOld();
                 Closed?.Invoke(old);
             }
 

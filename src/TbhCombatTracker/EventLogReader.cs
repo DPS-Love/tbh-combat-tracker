@@ -17,18 +17,28 @@ namespace TbhCombatTracker
     /// </summary>
     public static class EventLogReader
     {
-        public static Session Read(string path, CombatParser.Options options)
+        /// <param name="closed">
+        /// 每结束一段调一次；返回 false 就不再往下读（从日志里捞某一段时，捞到了就停）。
+        /// 提前停下时进行中的那段不收尾。
+        /// </param>
+        /// <param name="applied">
+        /// 每个事件交给解析器之后调一次，此时 <see cref="Session.Current"/> 就是它所属的那段——
+        /// 逐条查看原始事件时，用它把某一段的事件挑出来。
+        /// </param>
+        public static Session Read(string path, CombatParser.Options options, Func<Encounter, bool> closed = null,
+                                   Action<CombatEvent, Session> applied = null)
         {
             var session = new Session { SourcePath = path };
             using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
                                            FileShare.ReadWrite | FileShare.Delete))
             {
-                Read(fs, session, options);
+                Read(fs, session, options, closed, applied);
             }
             return session;
         }
 
-        public static void Read(Stream raw, Session session, CombatParser.Options options)
+        public static void Read(Stream raw, Session session, CombatParser.Options options, Func<Encounter, bool> closed = null,
+                                Action<CombatEvent, Session> applied = null)
         {
             var b0 = raw.ReadByte();
             var b1 = raw.ReadByte();
@@ -41,8 +51,10 @@ namespace TbhCombatTracker
                 using (var reader = new StreamReader(input, new UTF8Encoding(false), false, 64 * 1024, leaveOpen: true))
                 {
                     var parser = new CombatParser(session, options);
-                    ReadLines(reader, session, parser);
-                    parser.Finish();
+                    var stop = false;
+                    if (closed != null) parser.Closed = e => { if (!closed(e)) stop = true; };
+                    ReadLines(reader, session, parser, () => stop, applied);
+                    if (!stop) parser.Finish();
                 }
             }
             finally
@@ -51,7 +63,8 @@ namespace TbhCombatTracker
             }
         }
 
-        public static void ReadLines(TextReader reader, Session session, CombatParser parser)
+        public static void ReadLines(TextReader reader, Session session, CombatParser parser, Func<bool> stop = null,
+                                     Action<CombatEvent, Session> applied = null)
         {
             var sawHeader = false;
             session.Truncated = true;   // 读到 #END 才算完整
@@ -74,6 +87,8 @@ namespace TbhCombatTracker
                     case EventLogFormat.LineKind.Event:
                         if (!sawHeader) throw new InvalidDataException("不是 TBH 战斗日志（缺少 #TBHLOG 文件头）");
                         parser.Apply(e);
+                        applied?.Invoke(e, session);
+                        if (stop != null && stop()) return;
                         break;
 
                     case EventLogFormat.LineKind.Header:

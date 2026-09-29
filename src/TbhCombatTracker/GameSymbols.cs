@@ -11,7 +11,7 @@
 //  改完构建，跑 `dotnet run --project tools/sigcheck`：它直接读构建出的 DLL，
 //  核对这里引用的每一个类型和成员在当前 interop 里是否还在——不需要再维护第二份清单。
 //
-//  【生存路径】Plugin.Load / TrackerBehaviour / Overlay / UpdateBanner 这条路上的代码
+//  【生存路径】Plugin.Load / TrackerBehaviour / Ui.* / UpdateNotice 这条路上的代码
 //  不引用这里的任何别名——类型不存在时它们照样要跑，见 docs/DEVELOPMENT.md「四条硬规则」。
 // ============================================================================
 
@@ -36,7 +36,6 @@ global using GSkillInfoData = TaskbarHero.Data.SkillInfoData;
 global using GUnitHealth = global::pp;      // UnitHealth     ← 编译器生成的 <HealthRegenAsync>d__20 状态机的宿主类；Unit.UnitHealthController 的类型
 global using GHeroHealth = global::pl;      // HeroHealth     ← : GUnitHealth，唯一的 private Hero 字段，且覆写了 ChangeHp
 global using GMonsterHealth = global::pn;   // MonsterHealth  ← : GUnitHealth，唯一的 private Monster 字段，不覆写 ChangeHp
-global using GWindowNative = global::ou;    // 窗口控制       ← 调 SetWindowLong / GetWindowLong 的那个类（不是放 extern 的那个）
 global using GLoc = global::oa;             // 本地化包装     ← 五个 [Extension] static string 方法的静态类
 global using GHealField = global::bhh;      // 治疗场         ← PriestSanctuary 偏移 0x80 的字段类型
 
@@ -78,11 +77,6 @@ namespace TbhCombatTracker
         /// 且其中 2 处来自 TakeDamage、1 处来自 OnKilled——历次更新这个分布都没变。</summary>
         [Hook(typeof(GUnitHealth))]
         public const string HealFunnel = "hcy";
-
-        /// <summary>窗口点击穿透开关 (bool)。判据：GWindowNative 的几个 (bool) 方法里唯一被
-        /// WindowManager.Update() 调用的那个。</summary>
-        [Hook(typeof(GWindowNative))]
-        public const string ClickThrough = "gql";
 
         /// <summary>技能执行入口 override void ()。判据：PriestHeal / PriestSanctuary 各自覆写、RVA 互异。</summary>
         [Hook(typeof(GPriestHeal), typeof(GPriestSanctuary))]

@@ -27,7 +27,7 @@ namespace TbhCombatTracker
     ///
     /// 【线程】检查和下载都在后台线程。后台线程**绝不能碰任何 Il2Cpp 对象**（包括
     /// <c>Strings.Chinese</c> 这种会读 LocalizationSettings 的东西），所以这里只存
-    /// 结构化事实（版本号、两种语言的文案），由 <see cref="UpdateBanner"/> 在主线程上拼字符串。
+    /// 结构化事实（版本号、两种语言的文案），由 <see cref="UpdateNotice"/> 在主线程上拼字符串。
     ///
     /// 【清单只能通知，不能动作】哪怕清单把当前版本标记为 broken，这里也只是把事实
     /// 摆到横幅上——是继续用、点「停用」、还是点「更新」，全由玩家自己决定。

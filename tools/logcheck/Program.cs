@@ -100,8 +100,12 @@ namespace LogCheck
         {
             Run("关卡分段：启动、自动重复、先翻标志后改名、按名字换关、去抖、模板名", StageSegmentation);
             Run("空闲分段", IdleSegmentation);
-            Run("手动重置与保留上限", ResetAndCap);
+            Run("手动重置与内存上限：旧段卸载详细数据，摘要保留", ResetAndCap);
+            Run("设置事件：日志里记下的切段设置盖过默认值", ConfigEvents);
+            Run("从日志里捞回一段：捞到就停，和完整解析的那段一致", LoadOne);
             Run("归因：技能、暴击 / 类型 / 元素、治疗来源", Attribution);
+            Run("按对手拆分：怪物按种类、承伤按攻击者、治疗按对象", Targets);
+            Run("逐条事件：读日志时按段挑出原始事件", RawEvents);
             Run("写入再读回：与直接解析逐项一致", RoundTrip);
             Run("截断的日志：读到哪算哪，不抛异常", Truncated);
             Run("向前兼容：不认识的事件和多出来的字段", ForwardCompat);
@@ -156,6 +160,8 @@ namespace LogCheck
         private static CombatEvent Start(double t, bool v) => new CombatEvent { T = t, Kind = EventKind.StageStart, Flag = v };
         private static CombatEvent Wave(double t, string s) => new CombatEvent { T = t, Kind = EventKind.Wave, Text = s };
         private static CombatEvent Reset(double t) => new CombatEvent { T = t, Kind = EventKind.Reset };
+        private static CombatEvent Cfg(double t, string key, string value)
+            => new CombatEvent { T = t, Kind = EventKind.Config, Key = key, Text = value };
 
         private static Session Parse(IEnumerable<CombatEvent> events, CombatParser.Options opt, bool finish = true)
         {
@@ -243,11 +249,82 @@ namespace LogCheck
                 D(5, Ranger, 3), Reset(6), D(7, Ranger, 4),
             };
             var s = Parse(ev, new CombatParser.Options { MaxEncounters = 2 }, finish: false);
-            Check(s.Encounters.Count == 2 && s.DroppedEncounters == 1,
-                  $"上限 2：保留 2 段、丢 1 段，实际保留 {s.Encounters.Count}、丢 {s.DroppedEncounters}");
-            Check(s.Encounters[0].Outgoing[Ranger].Total == 2 && s.Encounters[1].Outgoing[Ranger].Total == 3,
-                  "丢的是最旧的那段");
+            Check(s.Records.Count == 3, $"三段都有摘要，实际 {s.Records.Count}");
+            Check(s.Records[0].Detail == null && s.Records[1].Loaded && s.Records[2].Loaded,
+                  "上限 2：最旧的一段卸载详细数据，最近两段留着");
+            Check(s.Records[0].OutgoingTotal == 1 && s.Records[0].Index == 1 && s.Records[2].Index == 4,
+                  $"卸载后摘要还在：总量 {s.Records[0].OutgoingTotal}，流水号 {s.Records[0].Index} / {s.Records[2].Index}（空段重置也占号）");
+            Check(s.Encounters.Count == 2 && s.Encounters[0].Outgoing[Ranger].Total == 2 &&
+                  s.Encounters[1].Outgoing[Ranger].Total == 3, "内存里的是最近两段");
             Check(s.Current.Outgoing[Ranger].Total == 4, "进行中的那段不受影响");
+            Check(s.RecordOf(2)?.OutgoingTotal == 2 && s.RecordOf(3) == null && s.RecordOf(99) == null, "按流水号找记录（空段的号不留记录）");
+        }
+
+        private static void ConfigEvents()
+        {
+            var ev = new List<CombatEvent>
+            {
+                Cfg(0, CombatParser.ConfigSegmentByStage, "0"),
+                Cfg(0, CombatParser.ConfigIdleSeconds, "8"),
+                U(0, Ranger, 'H', 2, "Hero_201", "游侠"),
+                D(1, Ranger, 10), D(2, Ranger, 10),
+                Name(3, "关卡 3-2"), Start(4, false), Start(5, true),   // 空闲分段下不切
+                D(20, Ranger, 5),                                       // 空了 18 秒：切
+                Cfg(21, CombatParser.ConfigSegmentByStage, "1"),        // 游戏里改回按关卡分段
+                D(22, Ranger, 5),
+                Start(30, false), Start(31, true),                      // 现在按关卡切
+                D(33, Ranger, 7),
+                Cfg(34, CombatParser.ConfigIdleSeconds, "2.5"),
+            };
+            // 调用方给的是"按关卡分段"，日志里的设置说了算
+            var s = Parse(ev.Select(Canon), new CombatParser.Options { SegmentByStage = true });
+            var totals = s.Encounters.Select(e => e.Outgoing[Ranger].Total).ToArray();
+            Check(totals.SequenceEqual(new[] { 20d, 10d, 7d }),
+                  "应切成 20 / 10 / 7 三段，实际 " + string.Join(" / ", totals));
+            Check(s.Encounters[2].StageName == "关卡 3-2", "改回按关卡分段后，切出来的段用已知的关卡名");
+
+            var opt = new CombatParser.Options();
+            var p = new CombatParser(new Session(), opt);
+            foreach (var e in ev) p.Apply(e);
+            Check(opt.SegmentByStage && Math.Abs(opt.IdleSeconds - 2.5f) < 1e-6, "设置事件改的就是解析器的选项");
+
+            // 写进日志再读回：C 行往返，结果一样
+            var bytes = WriteLog(ev.Select(Canon).ToList(), gzip: false, end: true, flushAt: -1);
+            var text = Encoding.UTF8.GetString(bytes);
+            Check(text.Contains("|C|segmentByStage|0") && text.Contains("|C|idleSeconds|2.5"), "C 行的写法");
+            var read = new Session();
+            using (var ms = new MemoryStream(bytes)) EventLogReader.Read(ms, read, new CombatParser.Options());
+            Check(Diff(s, read) == null && read.BadLines == 0, "C 行读回后切段一致");
+
+            // 不认识的设置名：忽略，不算坏行
+            Check(EventLogFormat.Parse("1.000|C|someFutureKey|42", out var fut) == EventLogFormat.LineKind.Event &&
+                  fut.Kind == EventKind.Config, "不认识的设置名照常解析（解析器忽略它）");
+            Check(EventLogFormat.Parse("1.000|C", out _) == EventLogFormat.LineKind.Bad, "缺字段的 C 行是坏行");
+        }
+
+        private static void LoadOne()
+        {
+            var events = Scenario().Select(Canon).ToList();
+            var full = Parse(events, new CombatParser.Options());
+            var bytes = WriteLog(events, gzip: true, end: true, flushAt: -1);
+
+            // 要第二段（关卡 3-2 #2）：读到它结束就停
+            var target = EncounterRecord.Of(full.Encounters[1]);
+            Encounter got = null;
+            var s = new Session();
+            using (var ms = new MemoryStream(bytes))
+                EventLogReader.Read(ms, s, new CombatParser.Options(), e =>
+                {
+                    if (target.Matches(e)) got = e;
+                    return got == null;
+                });
+
+            Check(got != null, "捞到了");
+            Check(s.EventCount < full.EventCount, $"捞到就停，没读完整个文件：{s.EventCount} / {full.EventCount} 条");
+            var a = new Session(); a.Records.Add(EncounterRecord.Of(full.Encounters[1]));
+            var b = new Session(); if (got != null) b.Records.Add(EncounterRecord.Of(got));
+            Check(Diff(a, b, units: false) == null, "和完整解析的那段逐项一致：" + Diff(a, b, units: false));
+            Check(!target.Matches(full.Encounters[2]), "流水号不同的段不匹配");
         }
 
         private static void Attribution()
@@ -282,6 +359,57 @@ namespace LogCheck
                   "牧师：自愈 40（战斗回复）+ 给游侠的治愈 60");
             Check(heal[Ranger].Total == 5 && heal[Ranger].TopHealKind == 0, "游侠：自然回复 5");
             Check(r.Name == "游侠" && r.ClassType == 2, "名字和职业来自单位定义");
+        }
+
+        private static void Targets()
+        {
+            const int Mob2 = -60013, Mob3 = -60020;
+            var ev = new List<CombatEvent>
+            {
+                U(0, Ranger, 'H', 2, "Hero_201", "游侠"),
+                U(0, Priest, 'H', 4, "Hero_401", "牧师"),
+                U(0, Mob, 'M', 0, "Monster_30043", "Monster_30043"),
+                U(0, Mob2, 'M', 0, "Monster_30043", "Monster_30043"),    // 同一种怪的另一只
+                U(0, Mob3, 'M', 0, "Monster_10011", "Monster_10011"),
+                D(1, Ranger, 100, crit: 1, type: 2, attr: 1, tgt: Mob),
+                D(2, Ranger, 50, crit: 0, type: 2, attr: 1, tgt: Mob2),
+                D(3, Ranger, 30, tgt: Mob3),
+                D(4, Ranger, 5, tgt: 0),                                   // 没有具体目标
+                Tk(5, Priest, 20, src: Mob),
+                Tk(6, Priest, 7, src: 0),                                  // 攻击者不明
+                H(7, Ranger, Priest, 60, 3),                               // 牧师治疗游侠
+                H(8, Priest, 0, 40, 1),                                    // 牧师自愈
+            };
+            var s = Parse(ev, new CombatParser.Options());
+            var e = s.Encounters[0];
+            var r = e.Outgoing[Ranger].ByTarget;
+            Check(r.TryGetValue("M:Monster_30043", out var m1) && m1.Total == 150 && m1.Hits == 2 && m1.Crits == 1 && m1.Max == 100,
+                  "同一种怪的两只合成一行：150，2 次，暴击 1，最高 100");
+            Check(r.TryGetValue("M:Monster_10011", out var m2) && m2.Total == 30, "另一种怪单独一行");
+            Check(r.TryGetValue("", out var none) && none.Total == 5, "没有具体目标的记在空键下");
+            var taken = e.Incoming[Priest].ByTarget;
+            Check(taken.TryGetValue("M:Monster_30043", out var t1) && t1.Total == 20 && taken.TryGetValue("", out var t0) && t0.Total == 7,
+                  "承伤按攻击者：怪物 20，不明 7");
+            var heal = e.Healing[Priest].ByTarget;
+            Check(heal.TryGetValue("U:游侠", out var h1) && h1.Total == 60 && heal.TryGetValue("U:牧师", out var h2) && h2.Total == 40,
+                  "治疗按对象：给游侠 60，自己 40");
+        }
+
+        private static void RawEvents()
+        {
+            var events = Scenario().Select(Canon).ToList();
+            var bytes = WriteLog(events, gzip: true, end: true, flushAt: -1);
+
+            // 挑出第 2 段（关卡 3-2 #2）的伤害事件：那一段正好 50 次攻击
+            var picked = new List<CombatEvent>();
+            var s = new Session();
+            using (var ms = new MemoryStream(bytes))
+                EventLogReader.Read(ms, s, new CombatParser.Options(), e => e.Index < 2, (e, sess) =>
+                {
+                    if (sess.Current != null && sess.Current.Index == 2 && e.Kind == EventKind.Damage) picked.Add(e);
+                });
+            Check(picked.Count == 50 && picked.All(e => e.Amount == 2000f), $"第 2 段挑出 50 条伤害，实际 {picked.Count}");
+            Check(picked.Count > 0 && picked[0].T >= 273 && picked[picked.Count - 1].T <= 541, "都在那一段的时间范围里");
         }
 
         private static void RoundTrip()
@@ -407,7 +535,7 @@ namespace LogCheck
             return ms.ToArray();
         }
 
-        private static string Diff(Session a, Session b)
+        private static string Diff(Session a, Session b, bool units = true)
         {
             if (a.Encounters.Count != b.Encounters.Count) return $"段数 {a.Encounters.Count} vs {b.Encounters.Count}";
             for (var i = 0; i < a.Encounters.Count; i++)
@@ -434,9 +562,13 @@ namespace LogCheck
                         if (sx.BySkill.Count != sy.BySkill.Count ||
                             sx.BySkill.Any(k => !sy.BySkill.TryGetValue(k.Key, out var o) || !o.Equals(k.Value)))
                             return $"第 {i} 段 {v} 来源 {kv.Key} 技能表不同";
+                        if (sx.ByTarget.Count != sy.ByTarget.Count ||
+                            sx.ByTarget.Any(k => !sy.ByTarget.TryGetValue(k.Key, out var o) || !o.Equals(k.Value)))
+                            return $"第 {i} 段 {v} 来源 {kv.Key} 对手表不同";
                     }
                 }
             }
+            if (!units) return null;
             if (a.Units.Count != b.Units.Count || a.Units.Any(k => !b.Units.TryGetValue(k.Key, out var u) ||
                                                                     u.Name != k.Value.Name || u.Key != k.Value.Key))
                 return "单位表不同";

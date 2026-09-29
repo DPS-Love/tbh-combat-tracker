@@ -59,6 +59,17 @@ namespace TbhCombatTracker
         private static readonly Session LiveSession = new Session();
         private static readonly CombatParser Parser = new CombatParser(LiveSession, new CombatParser.Options());
         private static bool _logEnabled;
+        /// <summary>关卡信号读不出来了（游戏类型变了）：不管设置怎么说，本局都按空闲时间分段。</summary>
+        private static bool _stageBroken;
+
+        /// <summary>
+        /// 本局当前这段的原始事件（伤害 / 承伤 / 治疗），给战斗记录的"逐条事件"看实时那段用，换段时清空。
+        /// 已经结束的段不留——要看时从日志里读（<see cref="EventPages"/>）。
+        /// </summary>
+        private static readonly List<CombatEvent> CurrentEvents = new List<CombatEvent>();
+        private static int _currentEventsIndex = -1;
+        /// <summary>一段最多留这么多条（约 4 MB），挂机挂出一段超长战斗也不会把内存撑爆。</summary>
+        public const int MaxCurrentEvents = 50000;
 
         /// <summary>写进日志的单位定义，用来判断是否要（重新）写一条 U。怪物一波一波地刷，别无限涨。</summary>
         private static readonly Dictionary<int, (char Kind, int Class, string Name)> SentUnits =
@@ -82,31 +93,92 @@ namespace TbhCombatTracker
                 var opt = Parser.Opt;
                 opt.SegmentByStage = Mod.Config.SegmentByStage.Value;
                 opt.IdleSeconds = Mod.Config.IdleResetSeconds.Value;
-                opt.MaxEncounters = Math.Clamp(Mod.Config.HistorySize.Value, 0, 1000);
                 Parser.Started = e => Mod.Log.Msg($"[stage] === 开始统计 {Strings.EncounterTitle(e)} ===");
                 Parser.Relabeled = e => Mod.Log.Msg($"[stage] 当前段更正为 {Strings.EncounterTitle(e)}");
-                Parser.Closed = e => Mod.Log.Msg(
-                    $"[stage] 本段结束：{Strings.EncounterTitle(e)}  {e.DurationSeconds:0.0}s  " +
-                    $"输出 {Overlay.Short(e.OutgoingTotal)}  承伤 {Overlay.Short(e.IncomingTotal)}  " +
-                    $"治疗 {Overlay.Short(e.HealingTotal)}");
+                Parser.Closed = OnClosed;
                 LiveSession.StartedAt = DateTimeOffset.Now - Clock.Elapsed;
             }
 
-            if (!Mod.Config.LogEvents.Value)
+            if (Mod.Config.LogEvents.Value)
             {
-                Mod.Log.Msg("战斗日志已在配置里关闭，主面板只有本局的数据。");
-                return;
+                var meta = new List<KeyValuePair<string, string>>
+                {
+                    new KeyValuePair<string, string>("mod", BuildInfo.Version),
+                    new KeyValuePair<string, string>("game", ReadGameVersion() ?? "?"),
+                    new KeyValuePair<string, string>("start", LiveSession.StartedAt.Value.ToString("o", CultureInfo.InvariantCulture)),
+                };
+                EventLogWriter.Start(LogDirectory, meta, Mod.Config.LogRetentionDays.Value);
+                _logEnabled = EventLogWriter.Running;
+            }
+            else
+            {
+                Mod.Log.Msg("战斗日志已在配置里关闭：本局的战斗记录全部留在内存里，不能导入。");
             }
 
-            var meta = new List<KeyValuePair<string, string>>
+            lock (Gate)
             {
-                new KeyValuePair<string, string>("mod", BuildInfo.Version),
-                new KeyValuePair<string, string>("game", ReadGameVersion() ?? "?"),
-                new KeyValuePair<string, string>("start", LiveSession.StartedAt.Value.ToString("o", CultureInfo.InvariantCulture)),
-            };
-            EventLogWriter.Start(LogDirectory, meta, Mod.Config.LogRetentionDays.Value);
-            _logEnabled = EventLogWriter.Running;
+                // 开局把切段设置写进日志：重新解析时照着切，和实时看到的分段一一对上
+                EmitSegmentation();
+                ApplyKeepInMemory();
+            }
+
+            // 设置界面里改了立刻生效（用具名方法而不是 lambda：EventHandler 的 lambda 会要求 NullableAttribute，
+            // 这个目标框架的引用里没有）
+            Mod.Config.SegmentByStage.SettingChanged += OnSegmentationChanged;
+            Mod.Config.IdleResetSeconds.SettingChanged += OnSegmentationChanged;
+            Mod.Config.KeepInMemory.SettingChanged += OnKeepInMemoryChanged;
         }
+
+        private static void OnSegmentationChanged(object sender, EventArgs e)
+        {
+            lock (Gate) EmitSegmentation();
+        }
+
+        private static void OnKeepInMemoryChanged(object sender, EventArgs e)
+        {
+            lock (Gate) ApplyKeepInMemory();
+        }
+
+        private static void OnClosed(Encounter e)
+        {
+            Mod.Log.Msg($"[stage] 本段结束：{Strings.EncounterTitle(e)}  {e.DurationSeconds:0.0}s  " +
+                        $"输出 {Fmt.Short(e.OutgoingTotal)}  承伤 {Fmt.Short(e.IncomingTotal)}  " +
+                        $"治疗 {Fmt.Short(e.HealingTotal)}");
+
+            // 写日志的线程停了（磁盘满之类）：之后卸载的段就捞不回来了，干脆不再卸载
+            if (_logEnabled && !EventLogWriter.Running)
+            {
+                _logEnabled = false;
+                ApplyKeepInMemory();
+                Mod.Log.Warning("战斗日志已停止写入，之后的战斗记录全部留在内存里。");
+            }
+        }
+
+        /// <summary>当前的切段设置写成 C 事件：日志里记一笔，实时解析器也照它改。</summary>
+        private static void EmitSegmentation()
+        {
+            var byStage = Mod.Config.SegmentByStage.Value && !_stageBroken;
+            var idle = Math.Max(0f, Mod.Config.IdleResetSeconds.Value);
+            Signal(new CombatEvent { Kind = EventKind.Config, Key = CombatParser.ConfigSegmentByStage, Text = byStage ? "1" : "0" });
+            Signal(new CombatEvent
+            {
+                Kind = EventKind.Config, Key = CombatParser.ConfigIdleSeconds,
+                Text = idle.ToString("0.###", CultureInfo.InvariantCulture),
+            });
+        }
+
+        /// <summary>
+        /// 最近几段留详细数据。只有日志在写时才卸载——卸载的段要靠日志捞回来，
+        /// 日志关着（或写坏了）就全部留在内存里。
+        /// </summary>
+        private static void ApplyKeepInMemory()
+        {
+            Parser.Opt.MaxEncounters = _logEnabled ? Math.Clamp(Mod.Config.KeepInMemory.Value, 0, 1000) : 0;
+            Parser.UnloadOld();
+        }
+
+        /// <summary>本局的日志能不能用来捞回已卸载的段。</summary>
+        public static bool CanReload => _logEnabled && EventLogWriter.CurrentPath != null;
 
         public static string LogDirectory => Path.Combine(Paths.BepInExRootPath, "TbhCombatTracker", "logs");
 
@@ -118,10 +190,14 @@ namespace TbhCombatTracker
             MaxEncounters = 0,
         };
 
-        /// <summary>关卡信号读不出来了：本局退回按空闲时间分段。</summary>
+        /// <summary>关卡信号读不出来了：本局退回按空闲时间分段（也写进日志，重新解析时一样）。</summary>
         public static void DisableStageSegmentation()
         {
-            lock (Gate) Parser.Opt.SegmentByStage = false;
+            lock (Gate)
+            {
+                _stageBroken = true;
+                EmitSegmentation();
+            }
         }
 
         public static List<SourceStats> Snapshot(TrackerView view)
@@ -246,6 +322,32 @@ namespace TbhCombatTracker
         {
             Parser.Apply(e);
             if (_logEnabled) EventLogWriter.Enqueue(e);
+
+            // 解析器处理完，Current 就是这个事件所属的那段（空闲切段时刚好换成新的一段）
+            var cur = LiveSession.Current;
+            if (cur == null) return;
+            if (cur.Index != _currentEventsIndex)
+            {
+                CurrentEvents.Clear();
+                _currentEventsIndex = cur.Index;
+            }
+            if ((e.Kind == EventKind.Damage || e.Kind == EventKind.Taken || e.Kind == EventKind.Heal) &&
+                CurrentEvents.Count < MaxCurrentEvents)
+                CurrentEvents.Add(e);
+        }
+
+        /// <summary>
+        /// 把当前这段的原始事件补进 <paramref name="into"/>：<paramref name="have"/> 是调用方手里那份属于哪一段，
+        /// 同一段就只追加新来的，换了段就整份重拷。返回这些事件属于哪一段。
+        /// </summary>
+        public static int CopyCurrentEvents(List<CombatEvent> into, int have)
+        {
+            lock (Gate)
+            {
+                if (have != _currentEventsIndex || into.Count > CurrentEvents.Count) into.Clear();
+                for (var i = into.Count; i < CurrentEvents.Count; i++) into.Add(CurrentEvents[i]);
+                return _currentEventsIndex;
+            }
         }
 
         /// <summary>单位第一次出现、或名字 / 职业变了，就写一条定义。</summary>
@@ -357,7 +459,7 @@ namespace TbhCombatTracker
 
         // ------------------------------------------------------------------ CSV 导出
 
-        /// <summary>把一段导出成 CSV。浮窗的 F11 导出实时的当前段，主面板导出选中的那段。</summary>
+        /// <summary>把一段导出成 CSV。浮窗的 F11 导出实时的当前段，战斗记录导出选中的那段。</summary>
         public static string ExportCsv(Encounter enc, string tag = null)
         {
             try
@@ -404,6 +506,31 @@ namespace TbhCombatTracker
                     Dump("outgoing", enc.Outgoing.Values);
                     Dump("incoming", enc.Incoming.Values);
                     Dump("healing", enc.Healing.Values);
+
+                    // 按对手拆分：输出是打了哪种怪，承伤是被哪种怪打，治疗是治疗了谁
+                    sb.AppendLine();
+                    sb.AppendLine("# 按对手拆分");
+                    sb.AppendLine("direction,source,counterpart,total,hits,crits,max_hit,share_of_source");
+                    void Targets(string direction, TrackerView view, IEnumerable<SourceStats> rows)
+                    {
+                        foreach (var s in rows.OrderByDescending(v => v.Total))
+                        {
+                            foreach (var kv in s.ByTarget.OrderByDescending(k => k.Value.Total))
+                            {
+                                sb.Append(direction).Append(',').Append(Csv(Strings.SourceName(s))).Append(',')
+                                  .Append(Csv(Breakdown.CounterpartLabel(kv.Key, view))).Append(',')
+                                  .Append(F(kv.Value.Total)).Append(',')
+                                  .Append(kv.Value.Hits.ToString(CultureInfo.InvariantCulture)).Append(',')
+                                  .Append(kv.Value.Crits.ToString(CultureInfo.InvariantCulture)).Append(',')
+                                  .Append(F(kv.Value.Max)).Append(',')
+                                  .Append(F(s.Total > 0d ? kv.Value.Total / s.Total : 0d))
+                                  .AppendLine();
+                            }
+                        }
+                    }
+                    Targets("outgoing", TrackerView.Outgoing, enc.Outgoing.Values);
+                    Targets("incoming", TrackerView.Incoming, enc.Incoming.Values);
+                    Targets("healing", TrackerView.Healing, enc.Healing.Values);
 
                     // 技能拆分单开一段：每个来源的技能数不固定，做成列会很难看
                     sb.AppendLine();

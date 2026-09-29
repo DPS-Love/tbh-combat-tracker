@@ -100,6 +100,10 @@ namespace TbhCombatTracker
                 case EventKind.Reset:
                     sb.Append('R');
                     break;
+
+                case EventKind.Config:
+                    sb.Append("C|").Append(Escape(e.Key)).Append('|').Append(Escape(e.Text));
+                    break;
             }
         }
 
@@ -186,6 +190,13 @@ namespace TbhCombatTracker
 
                 case "R":
                     e.Kind = EventKind.Reset;
+                    return LineKind.Event;
+
+                case "C":
+                    if (f.Length < 4 || f[2].Length == 0) return LineKind.Bad;
+                    e.Kind = EventKind.Config;
+                    e.Key = Unescape(f[2]);
+                    e.Text = Unescape(f[3]);
                     return LineKind.Event;
 
                 default:

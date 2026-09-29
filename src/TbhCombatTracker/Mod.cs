@@ -44,7 +44,10 @@ namespace TbhCombatTracker
         }
     }
 
-    /// <summary>配置项落在 BepInEx\config\dpslove.tbh.combattracker.cfg。</summary>
+    /// <summary>
+    /// 配置项落在 BepInEx\config\dpslove.tbh.combattracker.cfg。大部分在游戏里的设置界面（浮窗上的齿轮）就能改，
+    /// 改完 BepInEx 自动写回文件；调试用的几项只在文件里。
+    /// </summary>
     internal class ModConfig
     {
         public ConfigEntry<string> ToggleKey;
@@ -56,14 +59,14 @@ namespace TbhCombatTracker
         public ConfigEntry<bool> TrackHealing;
         public ConfigEntry<bool> TrackSkills;
         public ConfigEntry<bool> SegmentByStage;
-        public ConfigEntry<int> HistorySize;
+        public ConfigEntry<int> KeepInMemory;
         public ConfigEntry<bool> ProbeMode;
         public ConfigEntry<bool> DiagnosticMode;
         public ConfigEntry<bool> HealingDebug;
         public ConfigEntry<bool> LocalizationDebug;
         public ConfigEntry<float> UiScale;
         public ConfigEntry<float> SkewDegrees;
-        public ConfigEntry<bool> FixClickThrough;
+        public ConfigEntry<float> BackgroundOpacity;
         public ConfigEntry<bool> CheckUpdates;
         public ConfigEntry<bool> LogEvents;
         public ConfigEntry<int> LogRetentionDays;
@@ -78,7 +81,7 @@ namespace TbhCombatTracker
             ToggleKey = c.Bind("Hotkeys", "ToggleKey", "F9", "显示/隐藏面板"),
             ResetKey = c.Bind("Hotkeys", "ResetKey", "F10", "重置当前战斗统计"),
             ExportKey = c.Bind("Hotkeys", "ExportKey", "F11", "导出 CSV"),
-            MainPanelKey = c.Bind("Hotkeys", "MainPanelKey", "F8", "打开 / 关闭战斗记录主面板（浮窗标题栏上的「记录」也行）"),
+            MainPanelKey = c.Bind("Hotkeys", "MainPanelKey", "F8", "打开 / 关闭战斗记录（浮窗标题栏最左的图标也行）"),
 
             IdleResetSeconds = c.Bind("Tracking", "IdleResetSeconds", 8f,
                 "多少秒没有任何伤害就自动开启新一场战斗统计，0 = 从不自动重置"),
@@ -93,9 +96,10 @@ namespace TbhCombatTracker
             SegmentByStage = c.Bind("Tracking", "SegmentByStage", true,
                 "按关卡自动分段（读游戏的 StageManager 状态机）。"
                 + "关掉的话退回按 IdleResetSeconds 的空闲时间分段"),
-            HistorySize = c.Bind("Tracking", "HistorySize", 200,
-                "主面板里本局保留多少段已结束的战斗，0 = 不限，最多 1000。"
-                + "更早的仍在战斗日志里，导入就能看"),
+            KeepInMemory = c.Bind("Tracking", "KeepInMemory", 20,
+                "最近多少段战斗的详细数据留在内存里（0 = 全部留着，最多 1000）。"
+                + "更早的在战斗记录列表里照常列出，点开时从本局的战斗日志重新载入。"
+                + "战斗日志关着时全部留在内存里"),
             ProbeMode = c.Bind("Tracking", "ProbeMode", false,
                 "调试模式：把首次遇到的每个攻击者的各种名字字段打到日志，用来确认怎么给英雄取名"),
             HealingDebug = c.Bind("Tracking", "HealingDebug", false,
@@ -108,17 +112,17 @@ namespace TbhCombatTracker
                 "诊断模式：给血量控制器和 Monster 的所有方法挂钩子，记录前几次调用和实参，"
                 + "用来定位伤害到底走哪条路。日志量大，查完记得改回 false"),
 
-            UiScale = c.Bind("UI", "UiScale", 1.0f, "面板缩放"),
+            UiScale = c.Bind("UI", "UiScale", 1.0f, "界面缩放（0.5–3）。设置界面里也能改"),
             SkewDegrees = c.Bind("UI", "SkewDegrees", -30f,
                 "卡片色块的斜切角度，Horizoverlay 用的是 -30。设成 0 就是普通矩形"),
-            FixClickThrough = c.Bind("UI", "FixClickThrough", true,
-                "光标移到面板上时临时关掉游戏窗口的点击穿透，让按钮可点、窗口可拖。"
-                + "关掉的话面板就是纯展示，点击会穿透到下面的程序"),
+            BackgroundOpacity = c.Bind("UI", "BackgroundOpacity", 0.7f,
+                "浮窗、角色拆分窗口和战斗记录窗口背景的不透明度（0–1）。"
+                + "浮窗只在鼠标移上去时显示背景，移开后背景和标题栏按钮都隐藏，只留文字和卡片"),
 
             LogEvents = c.Bind("Log", "LogEvents", true,
                 "把战斗事件写进日志文件（BepInEx\\TbhCombatTracker\\logs，每局一个）。"
-                + "主面板可以导入任意一份，按当前版本重新解析——以后加了新的统计维度，旧日志也能算出来。"
-                + "关掉的话主面板只有本局的数据"),
+                + "战斗记录可以导入任意一份，按当前版本重新解析——以后加了新的统计维度，旧日志也能算出来。"
+                + "关掉的话战斗记录只有本局的数据，也不能导入；旧段的详细数据也不再从内存卸载"),
             LogRetentionDays = c.Bind("Log", "LogRetentionDays", 30,
                 "战斗日志保留天数，超过的在启动时删除；0 = 永久保留"),
 

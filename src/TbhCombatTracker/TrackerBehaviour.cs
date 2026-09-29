@@ -4,7 +4,7 @@ using UnityEngine;
 namespace TbhCombatTracker
 {
     /// <summary>
-    /// 注入进 IL2CPP 域的 MonoBehaviour，负责每帧的热键轮询和 IMGUI 绘制。
+    /// 注入进 IL2CPP 域的 MonoBehaviour，负责每帧的热键轮询和驱动界面。
     /// BepInEx 的 BasePlugin 不是 MonoBehaviour，拿不到 Unity 生命周期回调，
     /// 所以这些必须放在一个真正被注册进游戏运行时的组件里。
     /// </summary>
@@ -13,17 +13,9 @@ namespace TbhCombatTracker
         /// <summary>Il2CppInterop 要求注入类型提供这个构造函数，缺了会在 AddComponent 时崩。</summary>
         public TrackerBehaviour(IntPtr ptr) : base(ptr) { }
 
-        private void Start()
-        {
-            // 优先走 uGUI 射线靶：让游戏现成的 EventSystem.RaycastAll 帮我们解除穿透。
-            // 创建失败才回退到自己改窗口样式的 Win32 方案。
-            if (Mod.Config.FixClickThrough.Value && !RaycastAnchor.TryCreate())
-                Mod.Log.Warning("将使用 Win32 方案兜底解除点击穿透。");
-        }
-
         private void OnDestroy()
         {
-            RaycastAnchor.Destroy();
+            Ui.UiRoot.Destroy();
         }
 
         /// <summary>游戏正常退出：把战斗日志剩下的写完、写结束标记、关文件。</summary>
@@ -49,18 +41,14 @@ namespace TbhCombatTracker
                 }
             }
 
-            if (RaycastAnchor.Active)
-            {
-                // 靶子跟着浮窗、明细窗口、主面板走；哪个没画着，对应的靶子就缩到 0
-                RaycastAnchor.Sync(Overlay.CurrentScale);
-            }
-            else
-            {
-                ClickThrough.Tick();
-            }
+            // 界面：鼠标、刷新、窗口。它自己兜着异常，坏了会退回一行 IMGUI 提示
+            Ui.UiRoot.Update();
+
+            // 设置界面正在录新热键时，别让同一次按键再触发旧功能
+            if (Ui.UiRoot.CapturingKey) return;
 
             if (Hotkeys.Pressed(Mod.Config.ToggleKey.Value))
-                Overlay.Visible = !Overlay.Visible;
+                Ui.UiRoot.ToggleOverlay();
 
             if (Hotkeys.Pressed(Mod.Config.ResetKey.Value))
             {
@@ -69,7 +57,7 @@ namespace TbhCombatTracker
             }
 
             if (Hotkeys.Pressed(Mod.Config.MainPanelKey.Value))
-                MainPanel.Toggle();
+                Ui.UiRoot.ToggleMain();
 
             if (Hotkeys.Pressed(Mod.Config.ExportKey.Value))
             {
@@ -78,10 +66,10 @@ namespace TbhCombatTracker
             }
         }
 
+        /// <summary>界面是 uGUI 画的；这里只在它建不起来时画一行 IMGUI 提示（和更新横幅的文字）。</summary>
         private void OnGUI()
         {
-            Overlay.Draw();
-            MainPanel.Draw();
+            Ui.UiRoot.OnGUIFallback();
         }
     }
 

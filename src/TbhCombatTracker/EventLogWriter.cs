@@ -53,7 +53,7 @@ namespace TbhCombatTracker
                 for (var i = 2; File.Exists(path); i++)
                     path = Path.Combine(directory, $"tbh-{DateTime.Now:yyyyMMdd-HHmmss}-{i}.tbhlog.gz");
 
-                // 允许别人同时读：主面板导入"本局"的日志时就是边写边读
+                // 允许别人同时读：导入"本局"的日志、捞回已卸载的段时都是边写边读
                 var fs = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read | FileShare.Delete);
                 _gzip = new GZipStream(fs, CompressionLevel.Optimal);
                 _writer = new StreamWriter(_gzip, new UTF8Encoding(false), 64 * 1024) { NewLine = "\n" };

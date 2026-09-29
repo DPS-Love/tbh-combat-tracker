@@ -27,7 +27,6 @@ namespace TbhCombatTracker
         // 治疗那条路径 ChangeHp 的 source 恒为 null，所以施法者只能从技能侧夹上下文。
         private const string HpDeltaMethod = GameSymbols.ChangeHp;
         private const string TakeDamageMethod = GameSymbols.TakeDamage;
-        private const string ClickThroughMethod = GameSymbols.ClickThrough;
         private const string PriestHealMethod = GameSymbols.SkillExecute;
         private const string UnitTakeDamageMethod = GameSymbols.TakeDamage;
         private const string UnitOnKilledMethod = GameSymbols.OnKilled;
@@ -78,17 +77,6 @@ namespace TbhCombatTracker
                 }
             }
 
-            // 点击穿透修正：让面板能接收鼠标。失败只是按钮点不了，不影响统计。
-            if (Mod.Config.FixClickThrough.Value)
-            {
-                if (!TryPatch(harmony, () => typeof(GWindowNative), ClickThroughMethod,
-                        prefix: nameof(WindowStyle_Pre),
-                        postfix: nameof(WindowStyle_Post)))
-                {
-                    Mod.Log.Warning("穿透修正 hook 挂载失败：面板只能看，按钮点不了也拖不动。");
-                }
-            }
-
             // 治疗归因：在三个上游入口夹上下文，好让血量入口知道这次恢复是哪来的。
             // 任一失败只是该来源被并进"自然回复"，不影响总量。
             if (Mod.Config.TrackHealing.Value)
@@ -110,7 +98,7 @@ namespace TbhCombatTracker
                     prefix: nameof(Sanctuary_Pre), finalizer: nameof(Sanctuary_Fin));
             }
 
-            // 技能级归因：伤害饼图的数据来源。失败只是技能维度缺失，总量不受影响。
+            // 技能级归因：技能拆分（表格和环形图）的数据来源。失败只是技能维度缺失，总量不受影响。
             if (Mod.Config.TrackSkills.Value)
             {
                 if (!TryPatch(harmony, () => typeof(GActiveSkill), SkillDamageFactoryMethod,
@@ -557,20 +545,6 @@ namespace TbhCombatTracker
             {
                 LogOnceInternal("TakeDamage_Pre", e);
             }
-        }
-
-        /// <summary>光标在面板上时，把游戏的"点击穿透"参数改成可交互档。</summary>
-        private static void WindowStyle_Pre(ref bool a)
-        {
-            try { ClickThrough.OverrideArg(ref a); }
-            catch (Exception e) { LogOnceInternal("WindowStyle_Pre", e); }
-        }
-
-        /// <summary>标定参数极性用：读一次调用后的真实窗口样式。</summary>
-        private static void WindowStyle_Post(bool a)
-        {
-            try { ClickThrough.Observe(a); }
-            catch (Exception e) { LogOnceInternal("WindowStyle_Post", e); }
         }
 
         /// <summary>Finalizer 即使原方法抛异常也会执行，保证上下文不会泄漏到下一次伤害。</summary>

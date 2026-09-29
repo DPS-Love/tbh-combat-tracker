@@ -307,12 +307,11 @@ EventSystem.current.RaycastAll(pointerEventData, list)   ← 通用射线，遍�
    → on.glu(bool)                                        ← 开关 WS_EX_TRANSPARENT
 ```
 
-因为是**通用射线**，我们自建的 Canvas + GraphicRaycaster 也会被命中——所以只要挂一个
-透明的 `Image (raycastTarget=true)` 跟着面板走，游戏就会自己解除穿透
-（`RaycastAnchor.cs`）。不需要碰 Win32。
+因为是**通用射线**，我们自建的 Canvas + GraphicRaycaster 也会被命中——光标下有我们的
+`raycastTarget`，游戏就会自己解除穿透。不需要碰 Win32，也不需要 hook。
 
-`ClickThrough.cs` 是兜底：射线靶创建失败时才改窗口样式，并且参数极性靠读回
-`GWL_EXSTYLE` 自动标定，不硬编码。
+0.4.0 起界面本身就是 uGUI，每个窗口的底板就是射线靶。之前 IMGUI 时代的隐形射线靶（`RaycastAnchor`）
+和挂 `on.glu` 改窗口样式的兜底（`ClickThrough`）都删了，这个方法**不再挂**——下表里它的历次名字只作记录。
 
 ## 10. 本地化文本
 

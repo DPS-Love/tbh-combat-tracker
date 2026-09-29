@@ -75,15 +75,20 @@ Prefix/Finalizer 夹住外层，在内层把信息拼起来。攻击者归因靠
 hook 不直接改统计数字，而是产出**战斗事件**（伤害、承伤、治疗、关卡信号、手动重置），每个事件同时交给两处：
 
 ```
-hook / StageWatcher ──► DamageTracker ──┬─► CombatParser（本局）──► 浮窗 / 主面板
+hook / StageWatcher ──► DamageTracker ──┬─► CombatParser（本局）──► 浮窗 / 战斗记录
                                          └─► EventLogWriter ──► logs\tbh-*.tbhlog.gz
-导入： EventLogReader ──► CombatParser（新会话）──► 主面板
+导入： EventLogReader ──► CombatParser（新会话）──► 战斗记录
 ```
 
 分段（关卡名 / `b_StageStart` / 空闲时间 / 手动重置）、归因、分桶全在 `CombatParser` 里。
 实时和导入用的是**同一个解析器**，所以面板上的数字和日后导入同一份日志的数字逐项一致；
 解析器加了新维度或改了规则，旧日志重新导入也按新的算。事件里只装原始事实，判定依据
 （比如治疗的两个标志位和所在括号）一并记下。格式与兼容规则见 [eventlog.md](eventlog.md)。
+
+本局只给最近 `KeepInMemory` 段留详细数据；更早的段只剩摘要（`EncounterRecord`，几十字节），
+列表照样完整。点开一段已卸载的，`EncounterLoader` 在后台从头重新解析本局日志，捞到那段（和前后几段）就停。
+能捞回同一段靠两点：切段设置作为 `C` 事件写进了日志，重新解析的切法和当时一致；
+段按"流水号 + 开始时间"认。日志没开（或写坏了）时不卸载。
 
 ### 代码分工
 
@@ -98,12 +103,36 @@ hook / StageWatcher ──► DamageTracker ──┬─► CombatParser（本�
 | `Healing.cs` / `SkillTracker.cs` | 恢复来源分类、技能级归因的上下文 |
 | `StageWatcher.cs` | 读关卡信号（关卡名、开始标志、波次）上报成事件；分段规则在解析器里 |
 | `Localize.cs` | 读游戏本地化表（英雄名、技能名、元素属性） |
-| `Overlay.cs` / `DetailWindow.cs` / `PieChart.cs` | IMGUI 浮窗、角色明细、饼图 |
-| `MainPanel.cs` / `LineChart.cs` / `Breakdown.cs` | 战斗记录主面板（分段列表、表格、曲线、导入）、时间曲线、拆分表 |
-| `UpdateChecker.cs` / `UpdateBanner.cs` | 更新检查、一键更新、横幅 |
-| `RaycastAnchor.cs` / `ClickThrough.cs` | 解除窗口点击穿透（射线靶为主，Win32 兜底） |
+| `EncounterLoader.cs` / `EventPages.cs` | 从本局日志捞回已卸载的段（后台解析、小缓存）；逐条事件视图读某一段的原始事件（实时那段在 `DamageTracker` 的内存缓冲里） |
+| `Ui/UiRoot.cs` | 界面的根：Canvas、每帧鼠标轮询与命中分发、悬停提示、热键录制、窗口位置、IMGUI 兜底提示 |
+| `Ui/UiKit.cs` / `Ui/Window.cs` / `Ui/Widgets.cs` | 配色、字体、圆角贴图、节点（文字 / 色块 / 网格）；窗口基类；按钮、分段、开关、滑杆、色块、虚拟列表 |
+| `Ui/MeshBuilder.cs` / `Ui/Charts.cs` | 抗锯齿网格（折线、面积、环形、斜切色块）；曲线图、环形图 |
+| `Ui/OverlayView.cs` / `Ui/DetailView.cs` / `Ui/MainView.cs` / `Ui/SettingsView.cs` | 浮窗（含更新横幅）、角色拆分、战斗记录（列表、表格、曲线、导入）、设置 |
+| `Breakdown.cs` / `Fmt.cs` | 拆分表数据、数字格式 |
+| `UpdateChecker.cs` / `UpdateNotice.cs` | 更新检查、一键更新；横幅该说什么 |
 | `Plugin.cs` / `Mod.cs` / `TrackerBehaviour.cs` | 入口、加载器门面、注入 IL2CPP 域的 MonoBehaviour |
 | `Diagnostics.cs` / `Il2CppUtil.cs` | 诊断模式、原生指针去重 |
+
+### 界面
+
+界面是 uGUI：一个 `ScreenSpaceOverlay` 的 Canvas（排序压在游戏 UI 之上），每个窗口一个子 Canvas，
+这样一个窗口里的变化不会让别的窗口重新合批。布局用绝对坐标（左上原点、y 向下），节点把上次设过的值缓存着，
+没变就不跨 IL2CPP 边界；实时窗口按固定间隔重画（浮窗 5 次 / 秒），用户操作当帧重画。
+
+- **文字**：老式 `UnityEngine.UI.Text` + 系统字体（微软雅黑 UI 等）。游戏的 TMP 字库是静态图集，
+  动态加字的接口被裁掉了，显示不了任意中文。
+- **图标**：Windows 自带的图标字体（Win11 Segoe Fluent Icons / Win10 Segoe MDL2 Assets，两套码位相同），
+  都没有就退回文字符号（`Glyphs.Of`）。
+- **图形**：曲线、环形图、斜切色块由 `MeshBuilder` 拼网格，直接 `CanvasRenderer.SetMesh`，
+  边缘加一个屏幕像素的羽化带做抗锯齿。不派生 `Graphic`（那要往 IL2CPP 里注入子类）。
+- **输入**：不走 EventSystem。`UiInput` 每帧用 Win32 读光标和左键（窗口穿透时 Unity 收不到鼠标消息），
+  `UiRoot` 对各窗口登记的 `Hit` 做命中检测，按下 / 抬起 / 拖动 / 滚轮都在托管代码里分发。
+- **点击穿透**：每个窗口的底板是 `raycastTarget`。游戏的 `WindowManager.Update()` 每帧对全场景做
+  `EventSystem.RaycastAll`，打到它就自己解除窗口穿透，光标移开再恢复——不用 hook，也不用碰 Win32。
+
+在游戏里验证界面：没法替人动鼠标，所以用一份**不进仓库**的副本，在 `UiInput.Poll` 里接一个"假鼠标"，
+按真实的命中、点击、拖动、滚轮路径去点，每到一个状态在日志里打一行坐标，外面的脚本据此截图；
+再对每个窗口中心调一次 `EventSystem.RaycastAll`，确认打到的是我们的底板。
 
 ---
 
@@ -133,13 +162,17 @@ python tools/safe-hooks.py --types pq pm po Monster Hero --show-unsafe
 ### 新 UI 代码先查 API 有没有被裁剪
 
 IL2CPP 裁剪了游戏自身不用的托管方法，Il2CppInterop 还原失败的会生成一个直接 `throw` 的桩——
-编译期毫无提示。`GUILayout.FlexibleSpace()` 就是这样，曾导致启动卡死。
+编译期毫无提示。`GUILayout.FlexibleSpace()` 就是这样，曾导致启动卡死。另一种形态是方法本身在，
+但它内部调用的东西被裁掉了：`Font.CreateDynamicFontFromOSFont` 一调就 `MissingMethodException`
+（它 new 的那个私有构造函数没了），所以 `UiKit` 照着 Unity 的实现手工建系统字体。
 
 ```powershell
-dotnet run --project tools/sigcheck/sigcheck.csproj -- --stripped UnityEngine.IMGUIModule GUILayout GUI
+dotnet run --project tools/sigcheck/sigcheck.csproj -- --stripped UnityEngine.UI Text Image RectMask2D
+dotnet run --project tools/sigcheck/sigcheck.csproj -- --members UnityEngine.TextRenderingModule Font
 ```
 
-`Overlay` 另有熔断：连续 3 帧绘制失败就永久关闭面板。
+查过了也要进游戏看一眼（见下面「界面」一节）。界面另有熔断：单个窗口连续 3 次刷新失败就关掉它；
+整个界面连续出错就拆掉 Canvas，退回一行 IMGUI 提示，统计和热键不受影响。
 
 ### 生存路径不能引用游戏类型
 
@@ -148,7 +181,7 @@ dotnet run --project tools/sigcheck/sigcheck.csproj -- --stripped UnityEngine.IM
 要是这发生在 `Plugin.Load` 的调用链上，插件整个加载失败：没有窗口，也就没有更新提示，
 而那正是最需要提示的时刻。
 
-规则：`Plugin.Load` → `TrackerBehaviour` → `Overlay` / `UpdateBanner` / `UpdateChecker` 这条路上，
+规则：`Plugin.Load` → `TrackerBehaviour` → `Ui.*` / `UpdateNotice` / `UpdateChecker` 这条路上，
 任何方法的**签名和方法体**都不能出现游戏类型。需要碰游戏类型的代码放进单独的方法，
 在调用处 `try/catch`（`Patches.TryPatch` 的 `Func<Type>`、`TrackerBehaviour` 里对 `StageWatcher.Tick` 的包裹、
 `BuiltinText.ReadLocaleCode` 都是这个形状）。
@@ -163,7 +196,7 @@ dotnet run --project tools/sigcheck/sigcheck.csproj -- --stripped UnityEngine.IM
 
 ```powershell
 pwsh tools/simulate-update.ps1            # 把 DLL 里的游戏类型引用改成不存在的名字后部署
-# 启动游戏：窗口必须出现，横幅显示「本版 Mod 与当前游戏不匹配」，日志里各 hook 报"类型不存在"
+# 启动游戏：浮窗必须出现，横幅显示「本版 Mod 与当前游戏不匹配」，日志里各 hook 报"类型不存在"
 pwsh tools/simulate-update.ps1 -Restore   # 重新构建，换回真 DLL
 ```
 
@@ -243,7 +276,7 @@ Harmony 按名字找的方法（`[Hook]` 标注的常量）、字段访问器。
 一键更新：下载 zip → 校验 SHA-256（清单没有哈希就拒绝）→ 抠出 DLL → 把运行中的 DLL 改名为 `.old`
 （Windows 允许改名已加载的文件）→ 写入新文件。下次启动生效，启动时自动清理 `.old`。
 
-后台线程只写结构化事实，**不碰任何 Il2Cpp 对象**；语言选择和字符串拼接在主线程的 `UpdateBanner` 里做。
+后台线程只写结构化事实，**不碰任何 Il2Cpp 对象**；语言选择和字符串拼接在主线程的 `UpdateNotice` 里做。
 
 ### 发布前看一眼横幅
 
@@ -255,7 +288,7 @@ pwsh tools/test-manifest.ps1 -Scenario install -Apply   # 生成 build/test-mani
 ```
 
 `-Scenario` 可选 `update`（琥珀）/ `critical`（红）/ `install`（可一键更新，download 指向本机刚打的 zip）/
-`broken`（当前版本被点名，红 + 「停用」）。启动游戏、按 F9 即可看到。
+`broken`（当前版本被点名，红 + 「停用」）。启动游戏即可在浮窗顶上看到；按 F9 收起浮窗时，严重的那几种仍会单独显示一条。
 `install` 场景点「更新」会真的走一遍替换：换上的是同一个版本，`plugins` 里会多出 `.old`，横幅变绿。
 
 看完把 cfg 里的 `ManifestUrl` 清空，恢复官方地址。

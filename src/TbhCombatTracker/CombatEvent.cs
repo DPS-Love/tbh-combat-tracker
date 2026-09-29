@@ -24,6 +24,11 @@ namespace TbhCombatTracker
         Wave,
         /// <summary>R：玩家手动重置（F10 / 面板上的「重置」）。</summary>
         Reset,
+        /// <summary>
+        /// C：影响切段的设置（按不按关卡分段、空闲秒数）。开局写一遍，设置里改了再写一遍。
+        /// 重新解析时照着它切段，才能和当时实时看到的分段一一对上。
+        /// </summary>
+        Config,
     }
 
     /// <summary>
@@ -78,9 +83,9 @@ namespace TbhCombatTracker
         /// <summary>StageStart 的值。</summary>
         public bool Flag;
 
-        /// <summary>Unit / Ability：稳定键。</summary>
+        /// <summary>Unit / Ability：稳定键；Config：设置名。</summary>
         public string Key;
-        /// <summary>Unit / Ability：显示名；StageName / Wave：文本。</summary>
+        /// <summary>Unit / Ability：显示名；StageName / Wave：文本；Config：设置值。</summary>
         public string Text;
     }
 }

@@ -272,7 +272,17 @@ namespace TbhSigCheck
                 return 1;
             }
 
-            var asm = AssemblyDefinition.ReadAssembly(args[0]);
+            // 写回时 Cecil 要解析被引用的程序集（比如默认参数里的 Unity 枚举），得告诉它 interop 和 BepInEx 本体在哪
+            var resolver = new DefaultAssemblyResolver();
+            resolver.AddSearchDirectory(Path.GetDirectoryName(Path.GetFullPath(args[0])));
+            var interop = DefaultInteropDir();
+            if (Directory.Exists(interop))
+            {
+                resolver.AddSearchDirectory(interop);
+                var core = Path.Combine(Path.GetDirectoryName(interop), "core");
+                if (Directory.Exists(core)) resolver.AddSearchDirectory(core);
+            }
+            var asm = AssemblyDefinition.ReadAssembly(args[0], new ReaderParameters { AssemblyResolver = resolver });
             var obfuscated = new System.Text.RegularExpressions.Regex("^[a-z]{2,4}$");
             var renamed = new List<string>();
 

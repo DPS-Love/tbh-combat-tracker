@@ -59,7 +59,13 @@ namespace TbhCombatTracker
         /// <summary>按技能分桶，键是技能显示名。</summary>
         public readonly Dictionary<string, SkillStats> BySkill = new Dictionary<string, SkillStats>(StringComparer.Ordinal);
 
-        /// <summary>每秒一个桶，下标 = 距本段开始的秒数。主面板的曲线用它。</summary>
+        /// <summary>
+        /// 按对手分桶：输出是被打的怪物、承伤是打人的怪物、治疗是被治疗的英雄。
+        /// 键见 <see cref="CombatParser.CounterpartKey"/>——怪物按种类归（同一种怪刷几百只也是一行）。
+        /// </summary>
+        public readonly Dictionary<string, SkillStats> ByTarget = new Dictionary<string, SkillStats>(StringComparer.Ordinal);
+
+        /// <summary>每秒一个桶，下标 = 距本段开始的秒数。战斗记录里的曲线用它。</summary>
         public readonly List<float> PerSecond = new List<float>();
 
         public double FirstHitTime = -1d;
@@ -91,14 +97,18 @@ namespace TbhCombatTracker
             }
         }
 
-        internal void AddSkill(string skill, double amount, bool crit)
+        internal void AddSkill(string skill, double amount, bool crit) => Tally(BySkill, skill, amount, crit);
+
+        internal void AddTarget(string key, double amount, bool crit) => Tally(ByTarget, key, amount, crit);
+
+        private static void Tally(Dictionary<string, SkillStats> into, string key, double amount, bool crit)
         {
-            BySkill.TryGetValue(skill, out var st);
+            into.TryGetValue(key, out var st);
             st.Total += amount;
             st.Hits++;
             if (crit) st.Crits++;
             if (amount > st.Max) st.Max = (float)amount;
-            BySkill[skill] = st;
+            into[key] = st;
         }
     }
 
@@ -155,6 +165,59 @@ namespace TbhCombatTracker
         }
     }
 
+    /// <summary>
+    /// 一段已结束战斗的摘要，列表里显示的就是它。本局每一段都有一条（几十字节，常驻内存）；
+    /// 详细数据（各来源、每秒桶、技能表）只有最近若干段留在内存里，更早的卸载掉，
+    /// 要看时从日志文件重新解析——日志记的是事件，重新解析出来的就是同一段。
+    /// </summary>
+    public sealed class EncounterRecord
+    {
+        public int Index;
+        public string StageName;
+        public int Run;
+        public int StageNo;
+        public double StartTime;
+        public double LastActivityTime;
+        public double OutgoingTotal;
+        public double IncomingTotal;
+        public double HealingTotal;
+
+        /// <summary>详细数据；null = 已从内存卸载，还在日志文件里。</summary>
+        public Encounter Detail;
+
+        public bool Loaded => Detail != null;
+
+        public double DurationSeconds
+        {
+            get
+            {
+                var d = LastActivityTime - StartTime;
+                return d > 0.05d ? d : 0.05d;
+            }
+        }
+
+        public double TotalOf(TrackerView v)
+            => v == TrackerView.Incoming ? IncomingTotal : v == TrackerView.Healing ? HealingTotal : OutgoingTotal;
+
+        public static EncounterRecord Of(Encounter e) => new EncounterRecord
+        {
+            Index = e.Index,
+            StageName = e.StageName,
+            Run = e.Run,
+            StageNo = e.StageNo,
+            StartTime = e.StartTime,
+            LastActivityTime = e.LastActivityTime,
+            OutgoingTotal = e.OutgoingTotal,
+            IncomingTotal = e.IncomingTotal,
+            HealingTotal = e.HealingTotal,
+            Detail = e,
+        };
+
+        /// <summary>重新解析出来的某一段是不是这一条：流水号和开始时间都对得上。</summary>
+        public bool Matches(Encounter e)
+            => e != null && e.Index == Index && Math.Abs(e.StartTime - StartTime) < 0.0005d;
+    }
+
     /// <summary>日志里定义过的单位（英雄、怪物、召唤物…）。</summary>
     public sealed class UnitInfo
     {
@@ -187,12 +250,31 @@ namespace TbhCombatTracker
         public DateTimeOffset? StartedAt;
         public readonly Dictionary<string, string> Meta = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        /// <summary>已结束的段，最旧在前。</summary>
-        public readonly List<Encounter> Encounters = new List<Encounter>();
-        /// <summary>进行中的段。导入的日志读完后它也收进 <see cref="Encounters"/>，这里变成 null。</summary>
+        /// <summary>本局所有已结束的段（摘要），最旧在前。详细数据可能已卸载，见 <see cref="EncounterRecord.Detail"/>。</summary>
+        public readonly List<EncounterRecord> Records = new List<EncounterRecord>();
+        /// <summary>进行中的段。导入的日志读完后它也收进 <see cref="Records"/>，这里变成 null。</summary>
         public Encounter Current;
-        /// <summary>超出保留上限被丢掉的段数（只有实时会话会丢，日志里仍然都在）。</summary>
-        public int DroppedEncounters;
+
+        /// <summary>详细数据还在内存里的已结束段，最旧在前。导入的日志全部都在。</summary>
+        public List<Encounter> Encounters
+        {
+            get
+            {
+                var list = new List<Encounter>(Records.Count);
+                foreach (var r in Records)
+                    if (r.Detail != null) list.Add(r.Detail);
+                return list;
+            }
+        }
+
+        /// <summary>按流水号找一条记录；找不到返回 null。</summary>
+        public EncounterRecord RecordOf(int index)
+        {
+            // 流水号递增，从后往前二分也行，但段数不多，线性找足够
+            for (var i = Records.Count - 1; i >= 0; i--)
+                if (Records[i].Index == index) return Records[i];
+            return null;
+        }
 
         public readonly Dictionary<int, UnitInfo> Units = new Dictionary<int, UnitInfo>();
         public readonly Dictionary<int, AbilityInfo> Abilities = new Dictionary<int, AbilityInfo>();
