@@ -1,15 +1,15 @@
 {
   "schema": 1,
   "latest": {
-    "version": "0.3.0",
+    "version": "0.4.0",
     "gameVersion": "1.2.8",
-    "url": "https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/v0.3.0",
-    "download": "https://github.com/DPS-Love/tbh-combat-tracker/releases/download/v0.3.0/TbhCombatTracker-v0.3.0.zip",
-    "sha256": "823d589a20be339c831b873969997e8962afee0d779b8fb5dbaf15a4190f6654",
+    "url": "https://github.com/DPS-Love/tbh-combat-tracker/releases/tag/v0.4.0",
+    "download": "https://github.com/DPS-Love/tbh-combat-tracker/releases/download/v0.4.0/TbhCombatTracker-v0.4.0.zip",
+    "sha256": "db724e9ef6ecafa84793de35219b0fbc7bfb6bf8c60402b462dc7de11a177a7b",
     "critical": false,
     "notes": {
-      "zh": "战斗记录主面板与战斗日志；适配游戏 1.2.8",
-      "en": "Combat log window and combat logs; game 1.2.8"
+      "zh": "界面重做；设置界面、逐条事件、按目标拆分",
+      "en": "Rebuilt UI; settings window, event log, per-target breakdown"
     }
   },
   "broken": [
