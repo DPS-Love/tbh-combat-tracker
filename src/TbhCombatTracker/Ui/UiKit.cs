@@ -64,6 +64,9 @@ namespace TbhCombatTracker.Ui
 
         public static Color PaletteAt(int i) => Palette[((i % Palette.Length) + Palette.Length) % Palette.Length];
 
+        /// <summary>环形图上的「其他」（一屏之外、占比太小的项）和这些行的色点：不带色相的灰，不和上面任何一色混淆。</summary>
+        public static readonly Color OtherSlice = new Color32(0x7A, 0x80, 0x89, 0xFF);
+
         /// <summary>来源的颜色：英雄按职业，未知来源 / 怪物用灰。</summary>
         public static Color SourceColor(SourceStats s)
             => s == null || s.InstanceId == 0 || s.ClassType == 0 ? new Color(0.62f, 0.62f, 0.62f) : JobTable.ColorOf(s.ClassType);

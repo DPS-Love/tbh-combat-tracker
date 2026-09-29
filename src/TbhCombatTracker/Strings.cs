@@ -271,6 +271,8 @@ namespace TbhCombatTracker
         public static string NoBreakdown => Pick("暂无细分数据", "No breakdown yet");
         public static string NoDataInSegment => Pick("这一段没有它的数据", "No data in this segment");
         public static string MoreItems(int n) => Pick($"…另有 {n} 项", $"…{n} more");
+        /// <summary>环形图上并起来的那一段（一屏之外的、占比太小的项）。</summary>
+        public static string Other => Pick("其他", "Other");
 
         // ================================================================ 设置
 

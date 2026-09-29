@@ -197,7 +197,7 @@ namespace TbhCombatTracker.Ui
             var sweep = a1 - a0;
             if (sweep <= 0f || rOuter <= rInner) return;
 
-            // 太窄的一段（内圈弧长连缝都不够）画不出来，图例里照样列着
+            // 太窄的一段（内圈弧长连缝都不够）画不出来。环形图已经把这种行并进「其他」，这里只是兜底
             if (sweep * rInner <= gap + Px && sweep < Mathf.PI * 2f - 0.001f) return;
 
             var full = sweep >= Mathf.PI * 2f - 0.001f;

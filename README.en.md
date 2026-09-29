@@ -90,7 +90,9 @@ Open it with the log icon at the far left of the overlay's title bar (or `F8`). 
   crit, hits, max), each combatant's per-second curve over time (hover it to read any second), and a breakdown
   table and donut by skill / damage type / element / **target** (which monsters you hit; for Taken, which monsters
   hit you; for Healing, whom you healed). Click a table row to focus on that combatant; click it again or an empty
-  spot to go back to the whole party. Breakdown rows and donut slices highlight each other on hover
+  spot to go back to the whole party. Breakdown rows and donut slices highlight each other on hover; scroll the
+  table when it has more than 8 items. On the donut, items past the first 8 or too small to draw are grouped into
+  a grey "Other" slice (grey dots in the table)
 - The icons at the top right swap the lower half for an **event log**: every hit, hit taken and heal of the encounter
   in order (source, target, skill, amount, crit, type), filtered by the current view and selected combatant. The
   live encounter follows the newest events; finished encounters and imported logs are read back from the log file

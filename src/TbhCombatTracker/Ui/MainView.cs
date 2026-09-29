@@ -113,12 +113,22 @@ namespace TbhCombatTracker.Ui
 
         // 拆分
         private readonly Segmented _dims, _healDims;
-        private readonly Label _breakWho, _breakEmpty, _breakMore;
+        private readonly Label _breakWho, _breakEmpty, _breakRange;
         private readonly Label[] _breakHeads = new Label[6];
-        private readonly BreakRow[] _breaks = new BreakRow[BreakRows];
+        /// <summary>拆分表：一屏 BreakRows 行，多的用滚轮翻。行对象是个池，跟着滚动位置换绑。</summary>
+        private readonly ListView _breakList;
+        private readonly BreakRow[] _breaks = new BreakRow[BreakRows + 1];
         private readonly DonutChart _donut;
-        /// <summary>光标指着的拆分行（-1 = 没有）；和环形图上指着的那段互相高亮。</summary>
-        private int _breakHover = -1;
+        /// <summary>光标指着的拆分行对象（-1 = 没有）；它此刻绑的那一行和环形图上指着的那段互相高亮。</summary>
+        private int _breakHoverSlot = -1;
+        // 滚动时换绑行要用的：这次的行和合计、列宽、环上单独成段的行数、高亮项，以及滚动位置归零的依据
+        private List<BreakdownRow> _breakData = new List<BreakdownRow>();
+        private double _breakSum;
+        private float[] _breakCols = new float[0];
+        private float _breakW;
+        private bool _breakDetailed, _breakHeal;
+        private int _breakFolded, _breakHighlight = -1, _breakHoverRow = -1;
+        private string _breakKey;
 
         // 曲线 + 拆分 / 逐条事件：两块轮流显示
         private readonly Node _statsArea, _eventsArea;
@@ -182,6 +192,7 @@ namespace TbhCombatTracker.Ui
             public Box Hover, Dot;
             public Label[] Cells = new Label[6];
             public Hit Hit;
+            public int Item = -1;
         }
 
         private sealed class PickRow
@@ -281,10 +292,11 @@ namespace TbhCombatTracker.Ui
             _breakWho = new Label(_statsArea, Theme.FontSmall, Theme.TextDim, TextAnchor.MiddleRight, name: "Who");
             for (var i = 0; i < _breakHeads.Length; i++)
                 _breakHeads[i] = new Label(_statsArea, Theme.FontTiny, Theme.TextFaint, i == 0 ? TextAnchor.MiddleLeft : TextAnchor.MiddleRight, name: "Head").NoWrap();
-            for (var i = 0; i < BreakRows; i++) _breaks[i] = MakeBreakRow(i);
+            _breakList = new ListView(this, _statsArea, BreakRowH);
+            for (var i = 0; i < _breaks.Length; i++) _breaks[i] = MakeBreakRow(i);
             _breakEmpty = new Label(_statsArea, Theme.FontSmall, Theme.TextDim, name: "BreakEmpty");
-            _breakMore = new Label(_statsArea, Theme.FontTiny, Theme.TextFaint, name: "BreakMore");
-            _donut = new DonutChart(this, _statsArea);
+            _breakRange = new Label(_statsArea, Theme.FontTiny, Theme.TextFaint, name: "BreakRange").NoWrap();
+            _donut = new DonutChart(this, _statsArea, BreakRows);
             _donut.HoverChanged = () => Dirty = true;
 
             _eventsArea = new Node("Events", _enc);
@@ -390,7 +402,7 @@ namespace TbhCombatTracker.Ui
 
         private BreakRow MakeBreakRow(int slot)
         {
-            var r = new BreakRow { Root = new Node("BreakRow" + slot, _statsArea) };
+            var r = new BreakRow { Root = new Node("BreakRow" + slot, _breakList.Viewport) };
             r.Hover = new Box(r.Root, Theme.Hover, 4f, "Hover");
             r.Hover.Active = false;
             r.Dot = new Box(r.Root, Theme.PaletteAt(slot), 3f, "Dot");
@@ -400,9 +412,9 @@ namespace TbhCombatTracker.Ui
             r.Hit = AddHit(r.Root);
             r.Hit.State = s =>
             {
-                var hot = s != HitState.Normal ? slot : _breakHover == slot ? -1 : _breakHover;
-                if (hot == _breakHover) return;
-                _breakHover = hot;
+                var hot = s != HitState.Normal ? slot : _breakHoverSlot == slot ? -1 : _breakHoverSlot;
+                if (hot == _breakHoverSlot) return;
+                _breakHoverSlot = hot;
                 Dirty = true;
             };
             r.Root.Active = false;
@@ -441,6 +453,7 @@ namespace TbhCombatTracker.Ui
                 Dirty = true;
             }
             if (_evList.Tick(dt)) BindEvents();
+            if (_breakList.Tick(dt)) BindBreaks();
             PollImport();
             if (_list.Tick(dt)) BindList();
             if (_pickList.Tick(dt)) BindPicker();
@@ -753,7 +766,7 @@ namespace TbhCombatTracker.Ui
             y += chartH + 10f;
 
             // ---- 拆分 ----
-            Breakdown(y, sel, rows);
+            Breakdown(y, sel, rows, $"{session.SourcePath}|{enc.Index}|{enc.StartTime}");
         }
 
         private void SetEventsMode(bool on)
@@ -1142,7 +1155,8 @@ namespace TbhCombatTracker.Ui
             }
         }
 
-        private void Breakdown(float y, SourceStats sel, List<SourceStats> everyone)
+        /// <param name="encKey">这一段是谁（会话 + 段）：换了段拆分表回到顶上。</param>
+        private void Breakdown(float y, SourceStats sel, List<SourceStats> everyone, string encKey)
         {
             var src = sel ?? (everyone.Count > 0 ? Everyone(everyone) : null);
             var heal = _view == TrackerView.Healing;
@@ -1190,69 +1204,115 @@ namespace TbhCombatTracker.Ui
 
             _breakEmpty.Active = src == null;
             _donut.Active = src != null;
+            var rows = src != null ? TbhCombatTracker.Breakdown.Of(src, dim, _view) : new List<BreakdownRow>();
             if (src == null)
             {
                 _breakEmpty.Text = Strings.NoBreakdown;
                 _breakEmpty.Place(RightX, y, RightW, BreakRowH);
-                foreach (var r in _breaks) r.Root.Active = false;
-                _breakMore.Active = false;
-                return;
+                _breakHoverRow = _breakHighlight = -1;
+            }
+            else
+            {
+                // 拆分行和环上的一段互相高亮：指着哪边都行
+                _breakHoverRow = HoveredBreakRow();
+                var highlight = _breakHoverRow >= 0 && _breakHoverRow < rows.Count ? _breakHoverRow : _donut.Hovered;
+                // 先定环：哪些行单独成段、哪些并进「其他」，表里的色点跟着它
+                _donut.Place(RightX + RightW - DonutSize, y - 4f, DonutSize);
+                _donut.Set(rows, Fmt.Short(src.Total), Fmt.Short(src.Dps) + "/s", UiRoot.Scale, highlight);
+                _breakFolded = _donut.Folded;
+                _breakHighlight = highlight;
+                if (rows.Count == 0)
+                {
+                    _breakEmpty.Active = true;
+                    _breakEmpty.Text = Strings.NoBreakdown;
+                    _breakEmpty.Place(RightX + 14f, y + BreakRowH, tw, BreakRowH);
+                }
             }
 
-            var rows = TbhCombatTracker.Breakdown.Of(src, dim, _view);
-            // 拆分行和环上的一段互相高亮：指着哪边都行
-            var highlight = _breakHover >= 0 && _breakHover < rows.Count ? _breakHover : _donut.Hovered;
             double sum = 0;
             foreach (var r in rows) sum += r.Value;
-            if (rows.Count == 0)
-            {
-                _breakEmpty.Active = true;
-                _breakEmpty.Text = Strings.NoBreakdown;
-                _breakEmpty.Place(RightX + 14f, y + BreakRowH, tw, BreakRowH);
-            }
+            _breakData = rows;
+            _breakSum = sum;
+            _breakCols = cols;
+            _breakW = tw;
+            _breakDetailed = detailed;
+            _breakHeal = heal;
 
-            for (var i = 0; i < BreakRows; i++)
+            // 一屏 BreakRows 行，多的用滚轮翻（右边的空隙放滚动条）；换了段 / 视图 / 维度 / 选中的人就回到顶上。
+            // 视口只和行一样高：行下面的空白照样是「点空白处取消选中」
+            var key = $"{encKey}|{(int)_view}|{(int)dim}|{sel?.InstanceId}";
+            _breakList.Place(RightX - 2f, y + BreakRowH, tw + 14f, Mathf.Min(rows.Count, BreakRows) * BreakRowH);
+            _breakList.Count = rows.Count;
+            if (key != _breakKey)
             {
-                var r = _breaks[i];
-                if (i >= rows.Count)
+                _breakKey = key;
+                _breakList.ScrollToTop();
+            }
+            _breakRange.Active = rows.Count > BreakRows;
+            if (_breakRange.Active) _breakRange.Place(RightX + 14f, y + (BreakRows + 1) * BreakRowH, tw - 14f, BreakRowH);
+            BindBreaks();
+        }
+
+        private int HoveredBreakRow()
+            => _breakHoverSlot >= 0 && _breakHoverSlot < _breaks.Length && _breaks[_breakHoverSlot].Root.Active
+                ? _breaks[_breakHoverSlot].Item
+                : -1;
+
+        /// <summary>把拆分行摆到当前滚动位置、填上内容。滚动动画每帧都会调它。</summary>
+        private void BindBreaks()
+        {
+            var rows = _breakData;
+            var vr = _breakList.Viewport.InWindow;
+            var otherHot = _breakHighlight == DonutChart.OtherSlice;
+            for (var slot = 0; slot < _breaks.Length; slot++)
+            {
+                var r = _breaks[slot];
+                var i = _breakList.ItemAt(slot, out var y);
+                if (slot >= _breakList.PoolSize || i >= rows.Count)
                 {
                     r.Root.Active = false;
+                    r.Item = -1;
                     continue;
                 }
                 var row = rows[i];
+                r.Item = i;
                 r.Root.Active = true;
-                r.Root.Place(RightX, y + (i + 1) * BreakRowH, tw, BreakRowH);
-                r.Hit.Rect = r.Root.InWindow;
-                r.Hover.Active = i == highlight;
-                r.Hover.Place(-2f, 0f, tw + 4f, BreakRowH);
+                r.Root.Place(2f, y, _breakW, BreakRowH);
+                // 被视口裁掉的那部分不该还能指
+                var rr = r.Root.InWindow;
+                var top = Mathf.Max(rr.y, vr.y);
+                var bottom = Mathf.Min(rr.yMax, vr.yMax);
+                r.Hit.Rect = new Rect(rr.x, top, rr.width, Mathf.Max(0f, bottom - top));
+                r.Hover.Active = i == _breakHighlight || (otherHot && i >= _breakFolded);
+                r.Hover.Place(-2f, 0f, _breakW + 4f, BreakRowH);
                 r.Dot.Place(2f, BreakRowH * 0.5f - 3.5f, 7f, 7f);
-                r.Dot.Color = Theme.PaletteAt(i);
-                var cells = detailed
-                    ? new[] { row.Label, Fmt.Short(row.Value), Fmt.Pct(sum > 0 ? row.Value / sum : 0d), Fmt.Count(row.Hits),
-                              row.Hits > 0 && !heal ? Fmt.Pct((double)row.Crits / row.Hits) : "—", Fmt.Short(row.Max) }
-                    : new[] { row.Label, Fmt.Short(row.Value), Fmt.Pct(sum > 0 ? row.Value / sum : 0d) };
+                r.Dot.Color = i < _breakFolded ? Theme.PaletteAt(i) : Theme.OtherSlice;
+                var share = Fmt.Pct(_breakSum > 0 ? row.Value / _breakSum : 0d);
+                var cells = _breakDetailed
+                    ? new[] { row.Label, Fmt.Short(row.Value), share, Fmt.Count(row.Hits),
+                              row.Hits > 0 && !_breakHeal ? Fmt.Pct((double)row.Crits / row.Hits) : "—", Fmt.Short(row.Max) }
+                    : new[] { row.Label, Fmt.Short(row.Value), share };
                 var cx = 0f;
                 for (var c = 0; c < r.Cells.Length; c++)
                 {
                     var cell = r.Cells[c];
-                    cell.Active = c < cells.Length;
-                    if (c >= cells.Length) continue;
+                    cell.Active = c < cells.Length && c < _breakCols.Length;
+                    if (!cell.Active) continue;
                     cell.Text = cells[c];
                     cell.Color = c <= 1 ? Theme.Text : Theme.TextDim;
                     var pad = c == 0 ? 14f : 0f;
-                    cell.Place(cx + pad, 0f, cols[c] - pad - 4f, BreakRowH);
-                    cx += cols[c];
+                    cell.Place(cx + pad, 0f, _breakCols[c] - pad - 4f, BreakRowH);
+                    cx += _breakCols[c];
                 }
             }
-            _breakMore.Active = rows.Count > BreakRows;
-            if (rows.Count > BreakRows)
+            _breakList.PaintThumb();
+            if (_breakRange.Active)
             {
-                _breakMore.Text = Strings.MoreItems(rows.Count - BreakRows);
-                _breakMore.Place(RightX + 14f, y + (BreakRows + 1) * BreakRowH, tw, BreakRowH);
+                _breakList.VisibleRange(out var from, out var to);
+                _breakRange.Text = $"{from}–{to} / {rows.Count}";
             }
-
-            _donut.Place(RightX + RightW - DonutSize, y - 4f, DonutSize);
-            _donut.Set(rows, Fmt.Short(src.Total), Fmt.Short(src.Dps) + "/s", UiRoot.Scale, highlight);
+            // 滚动时光标下换了一行：重排一次，环上跟着突出它
+            if (HoveredBreakRow() != _breakHoverRow) Dirty = true;
         }
 
         // ================================================================== 右侧：载入中 / 失败

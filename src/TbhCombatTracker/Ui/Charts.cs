@@ -175,30 +175,47 @@ namespace TbhCombatTracker.Ui
 
     /// <summary>
     /// 环形图：各段按占比、段间留缝，环心写总量和每秒。和旁边的拆分表 / 图例联动：
-    /// 光标停在某一段上，<see cref="Hovered"/> 报出是第几段（表里对应的行跟着高亮）；
+    /// 光标停在某一段上，<see cref="Hovered"/> 报出是哪一行（表里对应的行跟着高亮）；
     /// 表里某一行被指着时，调用方把 <c>highlight</c> 传进 <see cref="Set"/>，这一段往外凸出、别的变淡，环心改写这一项。
-    /// 形状没变（按 0.1% 取整的占比和高亮项）就不重建网格。
+    /// 行是从大到小排的：图例一屏之外的、窄到画不出来的都在尾巴上，并成最后一段灰色的「其他」；
+    /// 「其他」自己也画不出来时，这点角度并给最后一段——跳过不画的话，这些角度会在 12 点方向攒成一道时宽时窄的缝。
+    /// 形状没变（按 0.1% 取整的各段和高亮项）就不重建网格。
     /// </summary>
     internal sealed class DonutChart
     {
+        /// <summary>「其他」那一段的编号，用在 <see cref="Hovered"/> 和 <see cref="Set"/> 的 highlight 里。</summary>
+        public const int OtherSlice = -2;
+
+        private const float Gap = 2f;
+        /// <summary>单独成段至少要在内圈留出的实色宽度（屏幕像素），不够就并进「其他」。</summary>
+        private const float MinSolidPx = 1.5f;
+
         private readonly Window _window;
         private readonly Shape _shape;
         private readonly Label _big, _small;
         private readonly Hit _hit;
-        private readonly List<float> _bounds = new List<float>();
+        private readonly int _maxSlices;
+        // 画着的各段：终点（占整圈的比例）和对应的行号（「其他」是 OtherSlice）
+        private readonly List<float> _ends = new List<float>();
+        private readonly List<int> _ids = new List<int>();
         private string _signature;
         private float _size;
         private bool _hovering;
 
-        /// <summary>光标停在第几段上（-1 = 没有）。</summary>
+        /// <summary>光标停在哪一段上：行号，「其他」那段是 <see cref="OtherSlice"/>（-1 = 没有）。</summary>
         public int Hovered { get; private set; } = -1;
 
         /// <summary>光标换了一段：调用方据此重画对应的行。</summary>
         public Action HoverChanged;
 
-        public DonutChart(Window w, Node parent)
+        /// <summary>单独成段的行数：行号不小于它的行都算在「其他」里，图例上用灰点。</summary>
+        public int Folded { get; private set; }
+
+        /// <param name="maxSlices">最多几行单独成段：和拆分表 / 图例一屏的行数一致，往后的（要滚动才看得到）都进「其他」。</param>
+        public DonutChart(Window w, Node parent, int maxSlices)
         {
             _window = w;
+            _maxSlices = maxSlices;
             _shape = new Shape(parent, "Donut");
             _big = new Label(parent, 14, Theme.Text, TextAnchor.MiddleCenter, bold: true, name: "Total").NoWrap();
             _small = new Label(parent, Theme.FontTiny, Theme.TextDim, TextAnchor.MiddleCenter, name: "PerSec").NoWrap();
@@ -231,14 +248,37 @@ namespace TbhCombatTracker.Ui
             _hit.Rect = _shape.InWindow;
         }
 
-        /// <param name="highlight">要突出的那一项（-1 = 不突出）：被突出时环心写这一项的数值和占比。</param>
+        /// <param name="highlight">要突出的行号或 <see cref="OtherSlice"/>（-1 = 不突出）：环心改写这一项的数值和占比。
+        /// 并进「其他」的行突出的是「其他」那段。</param>
         public void Set(IList<BreakdownRow> rows, string big, string small, float scale, int highlight = -1)
         {
             double total = 0;
             foreach (var r in rows) total += r.Value;
             if (highlight >= rows.Count) highlight = -1;
 
-            if (highlight >= 0 && total > 0)
+            var c = _size * 0.5f;
+            var outer = c - 4f;           // 留出凸出的余地
+            var inner = outer * 0.64f;
+
+            // 哪些行单独成段：图例列得下，而且突出时（内圈缩 1）扣掉缝还剩 MinSolidPx 的实色。
+            // 行从大到小排，头一个不够的往后全都不够
+            var px = 1f / Mathf.Max(0.25f, scale);   // 一个屏幕像素，同 Shape.Begin
+            var minShare = (Gap + MinSolidPx * px) / Mathf.Max(1f, inner - 1f) / (Mathf.PI * 2f);
+            var fold = 0;
+            if (total > 0)
+                while (fold < rows.Count && fold < _maxSlices && rows[fold].Value / total >= minShare) fold++;
+            double rest = 0;
+            for (var i = fold; i < rows.Count; i++) rest += rows[i].Value;
+            var otherShown = rest > 0 && rest / total >= minShare;
+            Folded = fold;
+            if (highlight == OtherSlice && rest <= 0) highlight = -1;
+
+            if (highlight == OtherSlice)
+            {
+                _big.Text = Fmt.Short(rest);
+                _small.Text = Strings.Other + " " + Fmt.Pct(rest / total);
+            }
+            else if (highlight >= 0 && total > 0)
             {
                 _big.Text = Fmt.Short(rows[highlight].Value);
                 _small.Text = Fmt.Pct(rows[highlight].Value / total);
@@ -249,45 +289,50 @@ namespace TbhCombatTracker.Ui
                 _small.Text = small;
             }
 
-            _bounds.Clear();
+            _ends.Clear();
+            _ids.Clear();
             double acc = 0;
-            foreach (var r in rows)
+            for (var i = 0; i < fold; i++)
             {
-                acc += r.Value;
-                _bounds.Add(total > 0 ? (float)(acc / total) : 0f);
+                acc += rows[i].Value;
+                // 「其他」画不出来：最后一段直接接到 12 点，段间的缝都一样宽
+                _ends.Add(i == fold - 1 && !otherShown ? 1f : (float)(acc / total));
+                _ids.Add(i);
+            }
+            if (otherShown)
+            {
+                _ends.Add(1f);
+                _ids.Add(OtherSlice);
             }
 
+            // 突出哪一段：并进「其他」的行突出「其他」；「其他」没画出来就只是别的都变淡
+            var hot = highlight >= fold ? OtherSlice : highlight;
+
             var sig = new System.Text.StringBuilder();
-            sig.Append(scale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(highlight).Append('|');
-            for (var i = 0; i < rows.Count; i++)
-                sig.Append(Math.Round(total > 0 ? rows[i].Value / total : 0d, 3).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append(';');
+            sig.Append(scale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)).Append('|').Append(hot).Append('|');
+            for (var k = 0; k < _ends.Count; k++)
+                sig.Append(_ids[k]).Append(':').Append(Math.Round(_ends[k], 3).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)).Append(';');
             var s = sig.ToString();
             if (s == _signature) return;
             _signature = s;
 
             var b = _shape.Begin(scale);
-            var c = _size * 0.5f;
-            var outer = c - 4f;           // 留出凸出的余地
-            var inner = outer * 0.64f;
-            if (total <= 0)
+            if (_ends.Count == 0)
             {
                 b.Ring(c, c, inner, outer, 0f, Mathf.PI * 2f, new Color(1f, 1f, 1f, 0.08f));
             }
             else
             {
-                var a = 0f;
-                var gap = rows.Count > 1 ? 2f : 0f;
-                for (var i = 0; i < rows.Count; i++)
+                var a0 = 0f;
+                for (var k = 0; k < _ends.Count; k++)
                 {
-                    var sweep = (float)(rows[i].Value / total) * Mathf.PI * 2f;
-                    if (sweep > 0f)
-                    {
-                        var color = Theme.PaletteAt(i);
-                        if (highlight >= 0 && i != highlight) color = Theme.With(color, 0.35f);
-                        var hot = i == highlight;
-                        b.Ring(c, c, hot ? inner - 1f : inner, hot ? outer + 3.5f : outer, a, a + sweep, color, gap);
-                    }
-                    a += sweep;
+                    var id = _ids[k];
+                    var a1 = _ends[k] * Mathf.PI * 2f;
+                    var color = id == OtherSlice ? Theme.OtherSlice : Theme.PaletteAt(id);
+                    if (hot != -1 && id != hot) color = Theme.With(color, 0.35f);
+                    var on = id == hot;
+                    b.Ring(c, c, on ? inner - 1f : inner, on ? outer + 3.5f : outer, a0, a1, color, Gap);
+                    a0 = a1;
                 }
             }
             _shape.Commit();
@@ -297,7 +342,7 @@ namespace TbhCombatTracker.Ui
         public void Tick()
         {
             var idx = -1;
-            if (_hovering && _shape.Shown && _bounds.Count > 0 && _bounds[_bounds.Count - 1] > 0f)
+            if (_hovering && _shape.Shown && _ends.Count > 0)
             {
                 var local = UiInput.Pos - _window.Rect.position - _shape.InWindow.position;
                 var c = _size * 0.5f;
@@ -311,10 +356,10 @@ namespace TbhCombatTracker.Ui
                     var a = Mathf.Atan2(dx, -dy);   // y 向下：12 点方向是 0，顺时针增大
                     if (a < 0f) a += Mathf.PI * 2f;
                     var t = a / (Mathf.PI * 2f);
-                    for (var i = 0; i < _bounds.Count; i++)
+                    for (var i = 0; i < _ends.Count; i++)
                     {
-                        if (t > _bounds[i]) continue;
-                        idx = i;
+                        if (t > _ends[i]) continue;
+                        idx = _ids[i];
                         break;
                     }
                 }
