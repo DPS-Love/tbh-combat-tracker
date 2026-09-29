@@ -36,8 +36,13 @@ BepInEx 首次运行用 Cpp2IL 反编译 `GameAssembly.dll`，再用 Il2CppInter
 dotnet build src/TbhCombatTracker/TbhCombatTracker.csproj -c Release
 ```
 
-成功后自动部署到 `<游戏目录>\BepInEx\plugins\`。游戏路径在 [Directory.Build.props](../Directory.Build.props)
-的 `GameDir`，也可命令行覆盖 `-p:GameDir="E:\..."`。
+成功后自动部署到 `<游戏目录>\BepInEx\plugins\`。游戏目录按下面的顺序找，构建和 `tools/` 下的脚本都一样：
+
+1. 命令行指定：构建用 `-p:GameDir="E:\..."`，PowerShell 脚本用 `-GameDir`，Python 脚本用 `--game-dir` / `--dll`
+2. 环境变量 `TBH_GAME_DIR`
+3. Steam 默认库：注册表里的 `SteamPath\steamapps\common\TaskbarHero`
+
+游戏装在别的 Steam 库时，设一次 `TBH_GAME_DIR` 最省事。`pwsh tools/find-game.ps1` 会输出当前用的是哪个目录。
 
 构建前会跑两道检查，不合格直接失败：
 

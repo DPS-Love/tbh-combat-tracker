@@ -17,10 +17,13 @@
 #>
 param(
     [switch]$Restore,
-    [string]$GameDir = 'D:\Steam\steamapps\common\TaskbarHero'
+    [string]$GameDir
 )
 
 $ErrorActionPreference = 'Stop'
+$GameDir = & "$PSScriptRoot\find-game.ps1" -GameDir $GameDir
+# 构建和 sigcheck 也用这个目录，保证构建部署的、sigcheck 解析引用用的、下面覆盖的是同一份
+$gameProp = "-p:GameDir=$GameDir"
 $root = Split-Path $PSScriptRoot -Parent
 $proj = Join-Path $root 'src\TbhCombatTracker\TbhCombatTracker.csproj'
 $plugins = Join-Path $GameDir 'BepInEx\plugins'
@@ -43,21 +46,21 @@ $dotnet = Resolve-Dotnet
 
 if ($Restore) {
     Write-Host '重新构建，换回真 DLL …' -ForegroundColor Cyan
-    & $dotnet build $proj -c Release --nologo | Where-Object { $_ -match 'error|已部署|Build succeeded|已成功' }
+    & $dotnet build $proj -c Release --nologo $gameProp | Where-Object { $_ -match 'error|已部署|Build succeeded|已成功' }
     if ($LASTEXITCODE -ne 0) { Write-Error '构建失败。' }
     Write-Host '已恢复。' -ForegroundColor Green
     return
 }
 
 Write-Host '构建 …' -ForegroundColor Cyan
-& $dotnet build $proj -c Release --nologo | Where-Object { $_ -match 'error|Build succeeded|已成功' }
+& $dotnet build $proj -c Release --nologo $gameProp | Where-Object { $_ -match 'error|Build succeeded|已成功' }
 if ($LASTEXITCODE -ne 0) { Write-Error '构建失败，不模拟。' }
 
 $real = Join-Path $root 'src\TbhCombatTracker\bin\Release\TbhCombatTracker.dll'
 $mutated = Join-Path $root 'build\simulate\TbhCombatTracker.dll'
 
 Write-Host '改写游戏类型引用 …' -ForegroundColor Cyan
-& $dotnet run --project (Join-Path $root 'tools\sigcheck') -c Release -- --simulate-update $real $mutated
+& $dotnet run --project (Join-Path $root 'tools\sigcheck') -c Release $gameProp -- --simulate-update $real $mutated
 if ($LASTEXITCODE -ne 0) { Write-Error '改写失败。' }
 
 Copy-Item $mutated $deployed -Force

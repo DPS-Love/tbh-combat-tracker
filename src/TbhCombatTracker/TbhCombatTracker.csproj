@@ -116,7 +116,7 @@
   -->
   <Target Name="GenerateBuildInfo" BeforeTargets="CoreCompile">
     <PropertyGroup>
-      <_GameVersionFile>$(GameDir)\Version.txt</_GameVersionFile>
+      <_GameVersionFile Condition="'$(GameDir)' != ''">$(GameDir)\Version.txt</_GameVersionFile>
       <_BuildInfoFile>$(IntermediateOutputPath)BuildInfo.g.cs</_BuildInfoFile>
     </PropertyGroup>
     <ReadLinesFromFile File="$(_GameVersionFile)" Condition="Exists('$(_GameVersionFile)')">
@@ -149,7 +149,7 @@
   <Target Name="CheckGameRefs" BeforeTargets="BeforeBuild">
     <!-- RefsOnly=true 是给 CI 的：那里只有引用程序集，本来就没有游戏本体 -->
     <Error Condition="!Exists('$(GameDir)\TaskBarHero.exe') And '$(RefsOnly)' != 'true'"
-           Text="找不到游戏：$(GameDir)。请修改根目录的 Directory.Build.props 里的 GameDir。" />
+           Text="找不到游戏（GameDir=$(GameDir)）。游戏不在 Steam 默认库时，设置环境变量 TBH_GAME_DIR，或用 -p:GameDir=... 指定游戏目录。" />
     <Error Condition="!Exists('$(BepInExCoreDir)\BepInEx.Unity.IL2CPP.dll')"
            Text="找不到 $(BepInExCoreDir)\BepInEx.Unity.IL2CPP.dll。请先安装 BepInEx 6 IL2CPP：pwsh tools/install-bepinex.ps1" />
     <Error Condition="!Exists('$(BepInExInteropDir)\Assembly-CSharp.dll')"

@@ -34,7 +34,8 @@ param(
     [switch]$Critical,
     [string]$NotesZh = '',
     [string]$NotesEn = '',
-    [string]$GameDir = 'D:\Steam\steamapps\common\TaskbarHero'
+    # 构建和 manifest 里的 gameVersion 都用它；不给就按 find-game.ps1 的规则找
+    [string]$GameDir
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,6 +43,9 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $proj = Join-Path $root 'src\TbhCombatTracker\TbhCombatTracker.csproj'
 $dll = Join-Path $root "src\TbhCombatTracker\bin\$Configuration\TbhCombatTracker.dll"
+
+# 构建和 -Upload（读 Version.txt）要游戏目录；只打包现成的 DLL 时用不着
+$GameDir = & "$PSScriptRoot\find-game.ps1" -GameDir $GameDir -Optional:($SkipBuild -and -not $Upload)
 
 # 机器上可能同时装着"只有运行时的 dotnet"和"带 SDK 的 dotnet"，
 # 而 PATH 上先出现的未必是带 SDK 的那个。优先用 DOTNET_ROOT。
@@ -63,8 +67,9 @@ function Resolve-Dotnet {
 if (-not $SkipBuild) {
     $dotnet = Resolve-Dotnet
     Write-Host "构建中…（$dotnet）" -ForegroundColor Cyan
-    # 部署到游戏目录那一步失败无所谓（游戏可能开着），打包只要 bin 里的产物
-    & $dotnet build $proj -c $Configuration --nologo | Where-Object { $_ -match 'error|已成功|Build succeeded' }
+    # 部署到游戏目录那一步失败无所谓（游戏可能开着），打包只要 bin 里的产物。
+    # 游戏目录显式传给构建，保证和下面 manifest 读的是同一个
+    & $dotnet build $proj -c $Configuration --nologo "-p:GameDir=$GameDir" | Where-Object { $_ -match 'error|已成功|Build succeeded' }
     if ($LASTEXITCODE -ne 0) { Write-Error '构建失败，包没打。' }
 }
 

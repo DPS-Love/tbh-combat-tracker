@@ -23,11 +23,12 @@ param(
     [string]$Scenario = 'update',
     [switch]$Apply,
     [switch]$Reset,
-    [string]$GameDir = 'D:\Steam\steamapps\common\TaskbarHero'
+    [string]$GameDir
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+$GameDir = & "$PSScriptRoot\find-game.ps1" -GameDir $GameDir
 $cfg = Join-Path $GameDir 'BepInEx\config\dpslove.tbh.combattracker.cfg'
 
 function Set-ManifestUrl([string]$value) {

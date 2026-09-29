@@ -8,6 +8,7 @@ tools/Il2CppDumper/*.exe
 *.user
 .vs/
 .idea/
+__pycache__/
 
 # sigcheck 会把 Mono.Cecil 复制到输出目录
 tools/sigcheck/bin/

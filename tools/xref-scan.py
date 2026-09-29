@@ -16,11 +16,13 @@
 """
 import argparse
 import collections
+import os
 import re
 import struct
 import sys
 
-DEFAULT_DLL = r"D:\Steam\steamapps\common\TaskbarHero\GameAssembly.dll"
+from gamedir import find_game_dir
+
 DEFAULT_DUMP = "build/dump/dump.cs"
 
 DECL = re.compile(
@@ -257,7 +259,7 @@ def enclosing(methods, va):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--dll', default=DEFAULT_DLL)
+    ap.add_argument('--dll', help='默认取游戏目录下的 GameAssembly.dll')
     ap.add_argument('--dump', default=DEFAULT_DUMP)
     ap.add_argument('--targets', nargs='*', default=[],
                     help='类名，或 类名.方法名。列出这些方法被调用的次数和调用者')
@@ -276,6 +278,9 @@ def main():
             stream.reconfigure(encoding='utf-8')
         except Exception:
             pass
+
+    if not args.dll:
+        args.dll = os.path.join(find_game_dir('--dll'), 'GameAssembly.dll')
 
     print(f'解析 {args.dump} …')
     methods = parse_dump(args.dump)

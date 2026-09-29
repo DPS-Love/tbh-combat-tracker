@@ -20,7 +20,7 @@
     pwsh tools/install-bepinex.ps1 -Uninstall
 #>
 param(
-    [string]$GameDir = "D:\Steam\steamapps\common\TaskbarHero",
+    [string]$GameDir,
     [string]$Zip,
     [string]$Build = "785",
     [string]$Proxy = $env:HTTPS_PROXY,
@@ -29,6 +29,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+$GameDir = & "$PSScriptRoot\find-game.ps1" -GameDir $GameDir
 if (-not (Test-Path (Join-Path $GameDir 'TaskBarHero.exe'))) {
     Write-Error "找不到游戏：$GameDir"
 }

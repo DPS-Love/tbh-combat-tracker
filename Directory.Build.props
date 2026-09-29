@@ -1,11 +1,18 @@
 <Project>
 
   <!--
-    游戏路径。如果你的 Steam 库不在 D 盘，改这里，或者在命令行覆盖：
-        dotnet build -p:GameDir="E:\Steam\steamapps\common\TaskbarHero"
+    游戏路径，按顺序找（tools\find-game.ps1 是同一套规则）：
+      1. 命令行 -p:GameDir="E:\Steam\steamapps\common\TaskbarHero"
+      2. 环境变量 TBH_GAME_DIR
+      3. Steam 默认库：注册表里的 SteamPath\steamapps\common\TaskbarHero
+    游戏装在别的 Steam 库时用 1 或 2。
   -->
   <PropertyGroup>
-    <GameDir Condition="'$(GameDir)' == ''">D:\Steam\steamapps\common\TaskbarHero</GameDir>
+    <GameDir Condition="'$(GameDir)' == ''">$(TBH_GAME_DIR)</GameDir>
+    <_SteamPath Condition="'$(GameDir)' == '' And '$(OS)' == 'Windows_NT'">$(Registry:HKEY_CURRENT_USER\Software\Valve\Steam@SteamPath)</_SteamPath>
+    <!-- SteamPath 是 d:/steam 这种正斜杠写法，规范一下，免得输出里斜杠混着用 -->
+    <_SteamGameDir Condition="'$(_SteamPath)' != ''">$([System.IO.Path]::GetFullPath('$(_SteamPath)\steamapps\common\TaskbarHero'))</_SteamGameDir>
+    <GameDir Condition="'$(_SteamGameDir)' != '' And Exists('$(_SteamGameDir)\TaskBarHero.exe')">$(_SteamGameDir)</GameDir>
 
     <!--
       CI 上没有游戏，只有一份从私有仓库检出的引用程序集，直接指过去：

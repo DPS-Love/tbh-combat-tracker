@@ -7,11 +7,12 @@
     pwsh tools/dump-symbols.ps1 -GameDir "E:\Steam\steamapps\common\TaskbarHero"
 #>
 param(
-    [string]$GameDir = "D:\Steam\steamapps\common\TaskbarHero",
+    [string]$GameDir,
     [string]$OutDir = "$PSScriptRoot\..\build\dump"
 )
 
 $ErrorActionPreference = 'Stop'
+$GameDir = & "$PSScriptRoot\find-game.ps1" -GameDir $GameDir
 
 $dumper = Join-Path $PSScriptRoot 'Il2CppDumper\Il2CppDumper.exe'
 if (-not (Test-Path $dumper)) {
@@ -26,7 +27,7 @@ if (-not (Test-Path $dumper)) {
 $asm = Join-Path $GameDir 'GameAssembly.dll'
 $meta = Join-Path $GameDir 'TaskBarHero_Data\il2cpp_data\Metadata\global-metadata.dat'
 foreach ($f in @($asm, $meta)) {
-    if (-not (Test-Path $f)) { Write-Error "找不到 $f —— 检查 -GameDir 是否正确。" }
+    if (-not (Test-Path $f)) { Write-Error "找不到 $f —— 检查 -GameDir 或 TBH_GAME_DIR 是否正确。" }
 }
 
 $version = Get-Content (Join-Path $GameDir 'Version.txt') -Raw -ErrorAction SilentlyContinue

@@ -15,6 +15,7 @@ metadata 字面量都找不到；只能把 bundle 解出来看。
     python tools/dump-localization.py                      # 中英对照，全部键
     python tools/dump-localization.py --langs zh-hans ko-kr ru-ru
     python tools/dump-localization.py --grep Melee|Stat_   # 只看匹配的键
+    python tools/dump-localization.py --game-dir <游戏目录>  # 不给就按 tools/gamedir.py 的规则找
 """
 import argparse
 import glob
@@ -23,8 +24,10 @@ import re
 import struct
 import sys
 
-GAME = r'D:\Steam\steamapps\common\TaskbarHero'
-BUNDLES = os.path.join(GAME, r'TaskbarHero_Data\StreamingAssets\aa\StandaloneWindows64')
+from gamedir import find_game_dir
+
+# bundle 在游戏目录下的位置
+BUNDLES_REL = r'TaskbarHero_Data\StreamingAssets\aa\StandaloneWindows64'
 
 
 # ---------------------------------------------------------------- UnityFS
@@ -122,10 +125,10 @@ def sstrings(data):
 
 # ---------------------------------------------------------------- 主流程
 
-def load_keys():
-    hits = glob.glob(os.path.join(BUNDLES, 'localization-assets-shared*.bundle'))
+def load_keys(bundles):
+    hits = glob.glob(os.path.join(bundles, 'localization-assets-shared*.bundle'))
     if not hits:
-        sys.exit(f'找不到 shared bundle，确认游戏路径：{BUNDLES}')
+        sys.exit(f'找不到 shared bundle，确认游戏路径：{bundles}')
     keys = {}
     for idv, s in sstrings(unpack(hits[0])):
         if re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{2,60}', s):
@@ -133,8 +136,8 @@ def load_keys():
     return keys
 
 
-def load_lang(lang):
-    hits = [p for p in glob.glob(os.path.join(BUNDLES, 'localization-string-tables-*.bundle'))
+def load_lang(bundles, lang):
+    hits = [p for p in glob.glob(os.path.join(bundles, 'localization-string-tables-*.bundle'))
             if f'({lang})' in os.path.basename(p).lower()]
     if not hits:
         return None
@@ -151,12 +154,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--langs', nargs='+', default=['zh-hans', 'en-us'])
     ap.add_argument('--grep', help='只输出键名匹配这个正则的条目')
+    ap.add_argument('--game-dir', help='游戏目录；不给就按 tools/gamedir.py 的规则找')
     a = ap.parse_args()
 
-    keys = load_keys()
+    bundles = os.path.join(a.game_dir or find_game_dir('--game-dir'), BUNDLES_REL)
+    keys = load_keys(bundles)
     langs = {}
     for l in a.langs:
-        v = load_lang(l)
+        v = load_lang(bundles, l)
         if v is None:
             print(f'!! 没有语言 {l}', file=sys.stderr)
         else:
